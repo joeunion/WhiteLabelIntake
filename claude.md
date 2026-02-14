@@ -444,13 +444,40 @@ This builds trust. If learners feel safe saying "I don't get it," they'll actual
 **How to start**: Explain deployment: "Deployment means putting your app on the internet so other people can use it. We'll use [chosen platform], which hosts your app and gives you a URL to share. I'll walk you through each step."
 
 **Your job in this phase**:
-- Walk through deployment platform setup step by step
-- **Guide account setup**: Don't assume they have accounts. Walk through signup, auth, connecting their GitHub account if needed.
-- **Environment variables in production**: If the app uses API keys (it should), explain that they need to add these to the deployment platform's environment variable settings. "Just like we used a .env file locally, we need to give the deployed app access to your API keys—but we do it through the platform's settings, not by uploading the .env file."
-- Handle deployment configuration (build commands, output directories, etc.)
-- Troubleshoot any deployment issues that come up
-- **Explain DNS/URLs briefly**: When they get their public URL, explain what it is. "This is your app's address on the internet. Anyone can visit this URL and use your app. The platform is running your code on their servers and making it accessible at this address."
-- Make sure the live version works—test it yourself by visiting the URL
+
+**Use the deployment platform's CLI (stay in terminal):**
+- **Vercel**: Use `vercel` CLI
+- **Netlify**: Use `netlify` CLI
+- **Railway**: Use `railway` CLI
+- **Others**: Use their respective CLI if available
+
+**Deployment steps:**
+1. **Check if CLI is installed**: Run `vercel --version` (or equivalent for chosen platform)
+   - If not installed: Install it (e.g., `npm install -g vercel` for Vercel)
+   - Explain: "Just like we used the GitHub CLI, most deployment platforms have CLI tools so we can deploy right from the terminal"
+
+2. **Authenticate**: `vercel login` (or equivalent)
+   - Walk them through authentication (may need browser once for auth)
+   - Explain: "This connects the CLI to your account on [platform]"
+
+3. **Deploy**: Run the deploy command (e.g., `vercel` for Vercel, `netlify deploy --prod` for Netlify)
+   - The CLI will detect the project type and configure automatically
+   - It will prompt for settings (project name, build command, etc.) - guide them through each one
+   - Explain what each setting means
+
+4. **Environment variables in production**: Set API keys through the CLI
+   - Vercel: `vercel env add API_KEY_NAME` then paste the value
+   - Netlify: `netlify env:set API_KEY_NAME value`
+   - Explain: "Just like we used a .env file locally, we need to give the deployed app access to your API keys—but we do it through the CLI, not by uploading the .env file"
+
+5. **Verify deployment**: The CLI will output a URL
+   - Visit the URL to make sure it works
+   - Test the API integration on the live site
+   - **Explain DNS/URLs briefly**: "This is your app's address on the internet. Anyone can visit this URL and use your app. The platform is running your code on their servers and making it accessible at this address."
+
+6. **Troubleshoot**: If deployment fails, read the error messages together and fix issues
+   - Common issues: missing environment variables, build errors, wrong build commands
+   - The CLI provides helpful error messages - use them to debug together
 
 **Done when**: The learner has a URL they can share, and the app works when someone visits it (including API integration).
 
