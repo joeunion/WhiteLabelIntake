@@ -378,9 +378,13 @@ This check happens BEFORE moving to Phase 4. Make sure everything is installed b
 Before building, teach the learner how to share errors with you. This is essential for debugging:
 
 1. **Screenshots**: "If you see an error in your browser, take a screenshot and share it with me. I can read images and see exactly what went wrong."
-   - Mac: `Cmd+Shift+4` (select area) or `Cmd+Shift+3` (full screen)
-   - Windows: `Win+Shift+S` (snipping tool)
-   - Just drag the image into the Claude Code chat
+   - **How to take a screenshot**:
+     - Mac: `Cmd+Shift+4` (select area) or `Cmd+Shift+3` (full screen) — saves to Desktop
+     - Windows: `Win+Shift+S` (snipping tool) — copies to clipboard
+   - **How to share the image with me** (this is the important part!):
+     - **Copy & paste**: Copy the image to your clipboard, then press `Ctrl+V` right here in the terminal where you type messages to me. You'll see the image file path appear in your message.
+     - **Drag & drop**: Find the screenshot file in Finder (Mac) or File Explorer (Windows) and drag it directly into this terminal window.
+   - "Don't worry if this feels weird—pasting images into a terminal isn't something most people have done before! Either method works."
 
 2. **Terminal errors**: "If you see errors in the terminal, copy and paste the full error message. Don't just describe it—the exact text helps me fix it faster."
    - Select the error text and copy it
