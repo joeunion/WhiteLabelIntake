@@ -442,61 +442,95 @@ Say: "If something doesn't work or you see an error—no matter how small—shar
 
 **Goal**: Tested app with critical bugs identified and fixed.
 
-**How to start**: Brief pre-flight: "QA means Quality Assurance—we're going to test your app systematically to make sure it works as expected. We do this before deploying so we don't ship broken things to users. I'll guide you through testing each feature."
+**How to start**: Brief pre-flight: "QA means Quality Assurance—we're going to test your app systematically to make sure it works. Instead of you clicking through everything manually, I'm going to write automated tests using Playwright. This is how professional teams test—once written, tests can run anytime in seconds."
 
 **Your job in this phase**:
-- Guide them through testing their app feature-by-feature against the spec
-- Create `docs/testing-notes.md` to document what you're testing and what you find
-- **Test plan should cover**:
-  - Each feature from the spec works as described
-  - User flow works end-to-end
-  - **API integration testing** (critical):
-    - Does the API call return data correctly?
-    - What happens if the API is slow? (loading states)
-    - What happens if the API returns an error? (error messages displayed)
-    - What if the API rate limit is hit? (does the app handle it gracefully)
-    - What if bad/unexpected data is sent to the API?
-  - Edge cases (empty inputs, invalid data, boundary conditions)
-  - Works in different browsers if it's a web app
-- **Bug logging process**: When bugs are found:
-  - Describe the bug clearly (what happens vs. what should happen)
-  - Note severity:
-    - **Critical** = blocks core feature, breaks user flow, app doesn't work
-    - **Minor** = cosmetic issue, edge case, nice-to-have
-  - Log in `docs/testing-notes.md` under "Bugs Found"
-- **Working with the learner to fix bugs**:
-  - Prioritize critical bugs first
-  - Use plan mode before each fix (explain what's wrong and how to fix it)
-  - Fix one bug at a time, test the fix, confirm it works before moving on
-  - Commit after each bug fix with clear message: "Fix: [bug description]"
-- If there are minor bugs that would take a long time to fix, discuss with the learner: document them as "known issues for v2" rather than blocking deployment
+
+**1. Set up Playwright for automated testing**:
+- Install Playwright: `npm init playwright@latest` (or equivalent for their stack)
+- Explain: "Playwright is a tool that controls a browser automatically. It can click buttons, fill forms, and check if things work—just like a user would, but faster and more thorough."
+- Create tests directory (usually `tests/` or `e2e/`)
+
+**2. Write automated tests for**:
+- **Core user flow (end-to-end)**:
+  - Write a Playwright test that goes through the main user journey from the spec
+  - Example: "This test opens your app, clicks [button], fills in [field], and checks that [result] appears"
+  - Show them the test code and explain what each line does
+- **API integration**:
+  - Test that API calls work and return expected data
+  - Test error handling (mock a failed API call, check error message appears)
+  - Test loading states
+- **Edge cases**:
+  - Empty inputs, invalid data, boundary conditions
+  - What happens when things go wrong
+
+**3. Run the tests**:
+- Run tests: `npx playwright test`
+- Explain the output: green = passing, red = failing
+- If tests fail: great! We found bugs. Let's fix them.
+- **Show them the test running** (if possible, use headed mode so they can see the browser): `npx playwright test --headed`
+
+**4. Fix bugs found by tests**:
+- When tests fail, they tell us exactly what's broken
+- Use plan mode before each fix
+- Fix one bug at a time
+- Re-run tests after each fix
+- Commit after fixing: "Fix: [bug description]"
+- Keep running tests until all pass
+
+**5. Document in `docs/testing-notes.md`**:
+- What tests were written
+- What bugs were found and fixed
+- Final test results (all passing)
+
+**6. Manual verification (quick check)**:
+- After tests pass, have them do a quick manual check in the browser
+- "The tests passed, which is great! Can you open the app and just verify it looks good and feels right? Sometimes visual things don't show up in automated tests."
+- Take a screenshot if everything looks good
+
+**Why automated tests matter**:
+- Explain: "Now you have tests you can run anytime. If you add a feature later, run the tests to make sure you didn't break anything. Professional teams run tests before every deployment."
+- The tests become part of their project—a safety net for future changes
 
 **Testing notes format**:
 ```markdown
 # Testing Notes: [App Name]
 
-## Test Plan
-- [ ] Feature 1: [description of what to test]
-- [ ] Feature 2: [description of what to test]
-- [ ] User flow: [end-to-end journey]
-- [ ] API integration: [calls work, errors handled, loading states work]
-- [ ] Edge cases: [empty inputs, invalid data, etc.]
+## Automated Tests Written
 
-## Bugs Found
-
-### Critical Bugs
-1. **[Bug title]**: [What happens vs. what should happen] - [Status: FIXED/OPEN]
-
-### Minor Bugs
-1. **[Bug title]**: [Description] - [Status: FIXED/Deferred to v2]
+### End-to-End Tests (Playwright)
+- `tests/user-flow.spec.js` - Tests the main user journey: [describe what it tests]
+- `tests/api-integration.spec.js` - Tests API calls and error handling
+- `tests/edge-cases.spec.js` - Tests empty inputs, invalid data, etc.
 
 ## Test Results
-[Summary: what works well, what needed fixing, overall readiness for deployment]
+
+### Initial Test Run
+[Date/time]
+- ❌ Failed: [test name] - [why it failed]
+- ✅ Passed: [test name]
+
+### After Bug Fixes
+[Date/time]
+- ✅ All tests passing!
+
+## Bugs Found and Fixed
+
+1. **[Bug title]**: [What was wrong] - Fixed in commit [hash]
+2. **[Bug title]**: [What was wrong] - Fixed in commit [hash]
+
+## Manual Verification
+- [Date/time] - Manually tested in browser, everything looks good
+- Screenshot: [if applicable]
+
+## Summary
+All automated tests passing. App is ready for deployment.
 ```
 
 **Done when**:
-- All critical bugs are fixed (core features work)
-- Minor bugs are either fixed or documented as "known issues for v2"
+- All automated tests pass (green)
+- Manual visual check confirms it looks good
+- Any bugs found are fixed and tests re-run
 - The learner has tested the full user flow successfully and it works end-to-end
 - API integration is reliable (handles errors, displays data correctly)
 
