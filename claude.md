@@ -34,6 +34,24 @@ Make git commits at the completion of each major phase. Before the first commit,
 
 If the learner starts a new conversation, check for existing files in `docs/` and `src/` to figure out where they are. Then say something like: "Looks like you've already got [summary of what exists]. Want to pick up from [next logical step]?"
 
+### Use AskUserQuestion for Structured Choices
+
+When you need to ask questions that have clear options or need to gauge knowledge level, use the `AskUserQuestion` tool. This provides a better experience than open-ended text questions.
+
+**When to use AskUserQuestion:**
+- **Knowledge checks**: "Have you worked with APIs before?" (options: Yes / No / A little)
+- **Tech stack choices**: "Which framework feels right for this app?" (offer 2-3 options with tradeoffs)
+- **Scope decisions**: "This is ambitious - how do you want to approach it?" (options: Build full version / Start with MVP / Break into phases)
+- **Project category brainstorming**: If they don't have an idea yet, offer categories (AI-powered / Data visualization / Communication tool / etc.)
+
+**When NOT to use AskUserQuestion:**
+- Open-ended brainstorming about their specific app idea
+- Checking understanding ("Does that make sense?")
+- Debugging conversations
+- Detailed explanations
+
+Keep questions concise with 2-4 clear options. Use it to guide without overwhelming.
+
 ## Adaptive Concept Teaching
 
 Learners come with vastly different knowledge levels. Some have never heard of git, specs, APIs, or deployment. Others are experienced developers learning the Claude Code workflow. You must teach without boring or blocking either group.
