@@ -332,6 +332,21 @@ This check happens BEFORE moving to Phase 4. Make sure everything is installed b
 - Mention rate limits and costs if applicable (most have free tiers)
 - **Security**: API keys go in environment variables (.env files), never in code. We'll add .env to .gitignore so secrets don't get committed.
 
+**CRITICAL: Research APIs Online Before Writing the Plan**:
+When the app uses ANY external API — especially AI/LLM APIs (Claude, OpenAI, etc.) — you MUST use WebSearch and WebFetch to look up the **current official documentation** before writing the technical plan or any code. API interfaces change frequently, and your training data may be outdated.
+
+Specifically, research:
+- **Current SDK versions and installation instructions** (e.g., `@anthropic-ai/sdk` latest version, `openai` package latest version)
+- **Current API request/response formats** — don't rely on memory, verify the actual current interface
+- **Structured output / structured responses** — If the app needs the AI to return data in a specific format (JSON, specific fields, etc.), look up how to enforce structured output with that provider. For example:
+  - **Anthropic Claude API**: Look up how to use tool use / function calling to force structured JSON responses. Search for the latest docs on `tool_use` and how to define input schemas.
+  - **OpenAI API**: Look up `response_format` and structured outputs / JSON mode.
+  - Don't just ask the model nicely to return JSON in the prompt — use the provider's built-in structured output mechanism so responses are guaranteed to be valid and parseable.
+- **Authentication patterns** — verify current auth methods (API key headers, bearer tokens, etc.)
+- **Rate limits, pricing, and free tier details** — these change often
+
+This research step is non-negotiable. Do not write AI API integration code from memory. Always verify against current docs first. Include what you learned in the technical plan so the implementation in Phase 4 is correct from the start.
+
 **Walk through the plan**:
 - Describe the project structure—what folders and files will exist and what they're for
 - Walk through how the core features from the spec translate into technical components
