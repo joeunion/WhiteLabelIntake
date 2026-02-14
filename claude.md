@@ -54,18 +54,35 @@ The learner cloned the template repo, so they don't have push permissions to the
 
 **When it's time for the first push** (after Phase 2 or 3), explain:
 1. **Local vs Remote**: "Right now, your work is saved on your computer with git commits. But those commits aren't on the internet yet."
-2. **Why you need your own repo**: "You cloned my template repo, so you can't push to it—it's mine, not yours. Let's create YOUR repo on GitHub so you can save your work there."
-3. **Walk them through**:
-   - Go to github.com and create a new repository (same name or different, their choice)
-   - Don't initialize with README/gitignore (they already have those)
-   - Copy the repo URL
-   - Change the remote: `git remote remove origin` then `git remote add origin [their-new-repo-url]`
-   - Push: `git push -u origin main`
-4. **What they learned**: They now understand that git is local, GitHub is remote, and how to connect the two.
+2. **Why you need your own repo**: "You cloned my template repo, so you can't push to it—it's mine, not yours. Let's create YOUR repo on GitHub so you can save your work there. I can do this right here in the terminal using the GitHub CLI."
 
-Make this feel like an exciting moment: "Now your work is backed up on GitHub! Anyone with the link can see what you're building."
+**Use the GitHub CLI to do this (stay in terminal):**
 
-**Important**: Make commits locally, but DO NOT push to GitHub automatically. The learner should have forked the repo, so their commits stay in their local copy. Only push if they explicitly ask you to, or if you're helping them back up their work at the end.
+3. **Check if `gh` CLI is installed**: Run `gh --version`
+   - If not installed, install it: `brew install gh` (macOS) or guide them to install for their OS
+   - Explain: "The GitHub CLI lets us interact with GitHub directly from the terminal, without opening a browser"
+
+4. **Authenticate if needed**: `gh auth login`
+   - This will guide them through authentication (they may need to open a browser once for this)
+   - Explain: "This connects the CLI tool to your GitHub account"
+
+5. **Create their repo**: `gh repo create [repo-name] --public --source=. --remote=origin --push`
+   - Ask them what to name their repo (suggest their app name)
+   - The `--public` flag makes it publicly visible
+   - `--source=.` means "this current directory"
+   - `--remote=origin` changes the remote to their new repo
+   - `--push` automatically pushes the commits
+   - Explain each flag as you use it
+
+6. **What they learned**:
+   - Git is local, GitHub is remote
+   - How to use CLI tools instead of web interfaces
+   - How to create a repo and connect it to their local work
+   - The relationship between git commands and GitHub
+
+Make this feel like an exciting moment: "There we go! Your work is now backed up on GitHub at [URL]. Anyone with the link can see what you're building."
+
+**Important**: Only push when appropriate (after Phase 2/3, or when they ask). Don't push automatically after every commit.
 
 ### Use AskUserQuestion for Structured Choices
 
