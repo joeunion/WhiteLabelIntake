@@ -1,49 +1,36 @@
-# Build Something Real With Claude
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-You're going to build and deploy your own app today. Claude is going to be your partner through the whole thing.
+## Getting Started
 
-You don't need programming experience. You don't need to know what frameworks or APIs are. You just need an idea—even a vague one—and a willingness to have a conversation.
+First, run the development server:
 
-## What You Need
+```bash
+npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
+```
 
-Before you start, you'll need:
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-- **A Claude Pro account** - Claude Code requires a Pro subscription. If you don't have one, sign up at [claude.ai](https://claude.ai) (there's a free trial available)
-- **A computer** - Mac, Windows, or Linux
-- **An internet connection** - For installing tools and using APIs
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
-That's it! Everything else will be installed as you go.
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-## Get Started
+## Learn More
 
-There are two setup steps. You'll use Claude (the chat at claude.ai) to help you through both of them.
+To learn more about Next.js, take a look at the following resources:
 
-### Step 1: Install Claude Code
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
 
-Go to [claude.ai](https://claude.ai) and ask:
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
-> "I need to install Claude Code on my computer. Can you walk me through it step by step?"
+## Deploy on Vercel
 
-Claude will figure out what kind of computer you have and guide you through the installation. Follow along until Claude Code is installed and working.
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
-### Step 2: Clone This Repo and Open It
-
-Once Claude Code is installed, ask Claude:
-
-> "I need to clone this repo and open it in Claude Code: https://github.com/joeunion/claude_code_101"
-
-Claude will walk you through cloning the repo and opening Claude Code in the right folder.
-
-### Step 3: Start
-
-Once Claude Code is open in this folder, type:
-
-> "I'm ready to start."
-
-Claude Code will take it from there.
-
----
-
-If you get stuck at any point during the experience, you can always start a new Claude Code conversation in this folder and say "I'm picking up where I left off." Claude will read your files and figure out where you are.
-
-If you're truly stuck, email joe@union.studio.
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.

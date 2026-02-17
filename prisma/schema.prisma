@@ -1,0 +1,411 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── Auth.js Tables ──────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  name          String?
+  role          UserRole  @default(COLLABORATOR)
+  emailVerified DateTime?
+  image         String?
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  affiliateId String?
+  affiliate   Affiliate? @relation(fields: [affiliateId], references: [id])
+
+  sessions         Session[]
+  accounts         Account[]
+  sectionSnapshots SectionSnapshot[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ─── Core Entities ───────────────────────────────────────────────
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  COLLABORATOR
+}
+
+enum FormStatus {
+  DRAFT
+  SUBMITTED
+}
+
+model Affiliate {
+  id             String     @id @default(cuid())
+  legalName      String?
+  status         FormStatus @default(DRAFT)
+  submittedAt    DateTime?
+  deletedAt      DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  // Default scheduling system for all locations
+  defaultSchedulingSystem String? // "office_365" | "google_calendar" | "other"
+
+  users               User[]
+  programs            Program[]
+  locations           Location[]
+  providers           Provider[]
+  labNetworks         LabNetwork[]
+  radiologyNetworks   RadiologyNetwork[]
+  careNavConfigs      CareNavConfig[]
+  languageGuidelines  LanguageGuideline[]
+  techIntegrations    TechIntegration[]
+  referringProviders  ReferringProvider[]
+  sectionSnapshots    SectionSnapshot[]
+
+  @@map("affiliates")
+}
+
+// ─── Program-Scoped Entities ─────────────────────────────────────
+
+model Program {
+  id                   String   @id @default(cuid())
+  affiliateId          String
+  affiliate            Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+
+  // Section 1: Program Overview
+  programName          String?
+  contractStartDate    DateTime?
+  contractEndDate      DateTime?
+  adminContactName     String?
+  adminContactEmail    String?
+  executiveSponsorName String?
+  executiveSponsorEmail String?
+  estimatedMemberCount Int?
+
+  // Section 2: Default Services
+  defaultServicesConfirmed Boolean @default(false)
+
+  // Section 3: Geographic Availability
+  geographicAvailability String? // "national" | "state_based" | "metro_based" | "location_dependent"
+
+  // Section 4: In-Person & Extended Services
+  services             Service[]
+
+  // Section 1: IT Contact
+  itContactName        String?
+  itContactEmail       String?
+  itContactPhone       String?
+
+  // Section 5: Insurance & Billing (Payout)
+  w9FilePath           String?
+  achRoutingNumber     String?  // Encrypted
+  achAccountNumber     String?  // Encrypted
+  achAccountType       String?  // "checking" | "savings"
+  achAccountHolderName String?
+  bankDocFilePath      String?
+
+  // Section 5: Payment Account (Autocollect)
+  paymentAchAccountHolderName String?
+  paymentAchAccountType       String?  // "checking" | "savings"
+  paymentAchRoutingNumber     String?  // Encrypted
+  paymentAchAccountNumber     String?  // Encrypted
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  sectionSnapshots     SectionSnapshot[]
+
+  @@map("programs")
+}
+
+model Service {
+  id          String  @id @default(cuid())
+  programId   String
+  program     Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  serviceType String  // "labs" | "imaging" | "immunizations" | "dme" | "bundled_surgeries" | "specialist_care" | "physical_therapy" | "infusion_services" | "behavioral_health" | "other"
+  otherName   String? // Only if serviceType == "other"
+  selected    Boolean @default(false)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("services")
+}
+
+// ─── Operations-Scoped Entities ──────────────────────────────────
+
+model Location {
+  id                  String  @id @default(cuid())
+  affiliateId         String
+  affiliate           Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+
+  locationName        String?
+  streetAddress       String?
+  streetAddress2      String?
+  city                String?
+  state               String?
+  zip                 String?
+  closeByDescription  String?
+  locationNpi         String?
+  phoneNumber         String?
+  hoursOfOperation    String?
+  accessType          String? // "walk_in" | "appointment_only" | "both"
+
+  // On-site services
+  hasOnSiteLabs       Boolean @default(false)
+  hasOnSiteRadiology  Boolean @default(false)
+  hasOnSitePharmacy   Boolean @default(false)
+
+  // Structured weekly schedule
+  weeklySchedule      Json?   // Array of {day, openTime, closeTime, closed}
+
+  // Scheduling system override (null = use affiliate default)
+  schedulingSystemOverride String?
+
+  schedulingIntegrations SchedulingIntegration[]
+  providerLocations      ProviderLocation[]
+  referringProviderLocations ReferringProviderLocation[]
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("locations")
+}
+
+model SchedulingIntegration {
+  id                String  @id @default(cuid())
+  locationId        String
+  location          Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  serviceType       String  // "office_365" | "google_calendar" | "other"
+  serviceName       String? // Only if serviceType == "other"
+  accountIdentifier String?
+  requiresScopedProject Boolean @default(false)
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("scheduling_integrations")
+}
+
+model Provider {
+  id             String  @id @default(cuid())
+  affiliateId    String
+  affiliate      Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+
+  firstName      String?
+  lastName       String?
+  providerType   String? // "physician" | "np" | "pa" | "other"
+  licenseNumber  String?
+  licenseState   String?
+  npi            String?
+  deaNumber      String?
+
+  providerLocations ProviderLocation[]
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("providers")
+}
+
+model ProviderLocation {
+  id         String   @id @default(cuid())
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, locationId])
+  @@map("provider_locations")
+}
+
+model ReferringProvider {
+  id             String  @id @default(cuid())
+  affiliateId    String
+  affiliate      Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+
+  providerName   String?
+  npi            String?
+  streetAddress  String?
+  city           String?
+  state          String?
+  zip            String?
+  phone          String?
+  fax            String?
+  appliesToAll   Boolean @default(true)
+
+  referringProviderLocations ReferringProviderLocation[]
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("referring_providers")
+}
+
+model ReferringProviderLocation {
+  id                   String             @id @default(cuid())
+  referringProviderId  String
+  referringProvider    ReferringProvider   @relation(fields: [referringProviderId], references: [id], onDelete: Cascade)
+  locationId           String
+  location             Location           @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([referringProviderId, locationId])
+  @@map("referring_provider_locations")
+}
+
+model LabNetwork {
+  id                  String  @id @default(cuid())
+  affiliateId         String
+  affiliate           Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+
+  networkType         String? // "quest" | "labcorp" | "other"
+  otherNetworkName    String?
+  coordinationContactName  String?
+  coordinationContactEmail String?
+  coordinationContactPhone String?
+  requiresScopedProject    Boolean @default(false)
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("lab_networks")
+}
+
+model RadiologyNetwork {
+  id                      String  @id @default(cuid())
+  affiliateId             String
+  affiliate               Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+
+  networkName             String?
+  orderDeliveryMethod     String?
+  orderDeliveryEndpoint   String?
+  resultsDeliveryMethod   String? // "fax" | "pacs" | "ehr_portal" | "other"
+  resultsDeliveryEndpoint String?
+  coordinationContactName  String?
+  coordinationContactEmail String?
+  coordinationContactPhone String?
+
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@map("radiology_networks")
+}
+
+model CareNavConfig {
+  id                         String  @id @default(cuid())
+  affiliateId                String
+  affiliate                  Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+
+  acknowledged               Boolean @default(false)
+  educateMembers             Boolean @default(false)
+  scheduleServices           Boolean @default(false)
+  coordinateReferrals        Boolean @default(false)
+  ongoingCareCoordination    Boolean @default(false)
+  escalationTriggers         String?
+  primaryEscalationName      String?
+  primaryEscalationEmail     String?
+  secondaryEscalationName    String?
+  secondaryEscalationEmail   String?
+
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  @@map("care_nav_configs")
+}
+
+model LanguageGuideline {
+  id               String  @id @default(cuid())
+  affiliateId      String
+  affiliate        Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+
+  hasGuidelines    Boolean @default(false)
+  guidelines       String?
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("language_guidelines")
+}
+
+model TechIntegration {
+  id                      String  @id @default(cuid())
+  affiliateId             String
+  affiliate               Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+
+  ehrSystem               String?
+  practiceManagementSystem String?
+  patientPortal           String?
+  itContactName           String?
+  itContactEmail          String?
+  itContactPhone          String?
+
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@map("tech_integrations")
+}
+
+// ─── Section Snapshots (Versioning) ──────────────────────────────
+
+model SectionSnapshot {
+  id          String   @id @default(cuid())
+  sectionId   Int      // 1-14
+  data        Json     // Full JSON snapshot of section state
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  affiliateId String
+  affiliate   Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+  programId   String?
+  program     Program?  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@index([affiliateId, sectionId, createdAt])
+  @@map("section_snapshots")
+}

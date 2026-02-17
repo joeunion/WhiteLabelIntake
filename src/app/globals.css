@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+@theme inline {
+  /* Brand Colors */
+  --color-brand-teal: #066880;
+  --color-brand-teal-dark: #005A6E;
+  --color-brand-black: #1A1618;
+
+  /* Extended Brand */
+  --color-brand-green: #61CE70;
+  --color-brand-green-dark: #23A455;
+  --color-brand-teal-green: #008372;
+  --color-brand-blue: #007AAC;
+  --color-brand-blue-bright: #0071E6;
+  --color-brand-cyan: #6EC1E4;
+  --color-brand-olive: #799A05;
+  --color-brand-red: #DA0000;
+
+  /* Neutrals */
+  --color-off-white: #FFFEF9;
+  --color-white: #FFFFFF;
+  --color-gray-light: #F5F4F0;
+  --color-gray-border: #CCCACB;
+  --color-gray-medium: #575254;
+  --color-warm-orange: #FFBC7D;
+
+  /* Semantic */
+  --color-background: #FFFEF9;
+  --color-foreground: #1A1618;
+  --color-muted: #575254;
+  --color-border: #CCCACB;
+  --color-input-bg: #FFFFFF;
+  --color-focus: #066880;
+  --color-error: #DA0000;
+  --color-success: #23A455;
+
+  /* Spacing & Radius */
+  --radius-card: 24px;
+  --radius-button: 16px;
+  --radius-input: 12px;
+
+  /* Shadows */
+  --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.06);
+
+  /* Font families */
+  --font-heading: "area-normal", "Roboto", sans-serif;
+  --font-body: "articulat-cf", "Roboto", sans-serif;
+}
+
+body {
+  background-color: var(--color-off-white);
+  color: var(--color-foreground);
+  font-family: var(--font-body);
+  line-height: 1.36;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  letter-spacing: -0.5px;
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, #61CE70 0%, #23A455 30%, #008372 60%, #066880 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Focus ring for all interactive elements */
+*:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(6, 104, 128, 0.15);
+  border-color: var(--color-focus);
+}
