@@ -10,9 +10,11 @@ import type { Section1Data } from "@/lib/validations/section1";
 import { useCompletion } from "@/lib/contexts/CompletionContext";
 import { useAdminForm } from "@/lib/contexts/AdminFormContext";
 import { SectionNavButtons } from "../SectionNavButtons";
+import { useSyncSectionCache, useReportDirty } from "../OnboardingClient";
 
 export function Section1Form({ initialData, onNavigate, disabled }: { initialData: Section1Data; onNavigate?: (section: number) => void; disabled?: boolean }) {
   const [data, setData] = useState<Section1Data>(initialData);
+  useSyncSectionCache(1, data);
   const { updateStatuses } = useCompletion();
   const adminCtx = useAdminForm();
 
@@ -22,6 +24,7 @@ export function Section1Form({ initialData, onNavigate, disabled }: { initialDat
   }, [adminCtx]);
 
   const { save, isDirty } = useSaveOnNext({ data, onSave, onAfterSave: updateStatuses });
+  useReportDirty(1, isDirty);
 
   function update(field: keyof Section1Data, value: string) {
     setData((prev) => ({ ...prev, [field]: value }));

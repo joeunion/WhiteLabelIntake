@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { getSessionContext, writeSectionSnapshot } from "./helpers";
+import { getSessionContext, writeSectionSnapshot, assertNotSubmitted } from "./helpers";
 import { getCompletionStatuses } from "./completion";
 import { encryptField } from "@/lib/encryption";
 import type { Section4Data } from "@/lib/validations/section4";
@@ -9,6 +9,7 @@ import type { CompletionStatus } from "@/types";
 
 export async function saveSection4(data: Section4Data): Promise<Record<number, CompletionStatus>> {
   const ctx = await getSessionContext();
+  await assertNotSubmitted(ctx.affiliateId);
   if (!ctx.programId) return getCompletionStatuses(ctx.affiliateId);
 
   await prisma.program.update({

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Card } from "@/components/ui/Card";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Button } from "@/components/ui/Button";
@@ -10,7 +11,6 @@ import { loadSection3 } from "@/lib/actions/section3";
 import { loadSection5 } from "@/lib/actions/section5";
 import { loadSection6 } from "@/lib/actions/section6";
 import { loadSection7 } from "@/lib/actions/section7";
-import { loadSection8 } from "@/lib/actions/section8";
 import { loadSection9 } from "@/lib/actions/section9";
 import { submitForm } from "@/lib/actions/submit";
 import { SERVICE_TYPES } from "@/lib/validations/section3";
@@ -25,7 +25,6 @@ interface ReviewData {
   section5: Awaited<ReturnType<typeof loadSection5>> | null;
   section6: Awaited<ReturnType<typeof loadSection6>> | null;
   section7: Awaited<ReturnType<typeof loadSection7>> | null;
-  section8: Awaited<ReturnType<typeof loadSection8>> | null;
   section9: Awaited<ReturnType<typeof loadSection9>> | null;
 }
 
@@ -54,15 +53,15 @@ interface ReviewFormProps {
 }
 
 export function ReviewForm({ onNavigate }: ReviewFormProps) {
-  const { statuses } = useCompletion();
-  const sectionsToComplete = SECTIONS.filter((s) => s.id !== 10);
+  const { statuses, formStatus, refreshStatuses } = useCompletion();
+  const sectionsToComplete = SECTIONS.filter((s) => s.id !== 10 && !s.hidden);
   const allComplete = sectionsToComplete.every((s) => statuses[s.id] === "complete");
 
   const [data, setData] = useState<ReviewData>({
     loaded: false,
     section1: null, section2: null, section3: null,
     section5: null, section6: null, section7: null,
-    section8: null, section9: null,
+    section9: null,
   });
   const [confirmed, setConfirmed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -72,13 +71,13 @@ export function ReviewForm({ onNavigate }: ReviewFormProps) {
     Promise.all([
       loadSection1(), loadSection2(), loadSection3(),
       loadSection5(), loadSection6(), loadSection7(),
-      loadSection8(), loadSection9(),
-    ]).then(([s1, s2, s3, s5, s6, s7, s8, s9]) => {
+      loadSection9(),
+    ]).then(([s1, s2, s3, s5, s6, s7, s9]) => {
       setData({
         loaded: true,
         section1: s1, section2: s2, section3: s3,
         section5: s5, section6: s6, section7: s7,
-        section8: s8, section9: s9,
+        section9: s9,
       });
     });
   }, []);
@@ -87,9 +86,10 @@ export function ReviewForm({ onNavigate }: ReviewFormProps) {
     setSubmitting(true);
     try {
       await submitForm();
+      await refreshStatuses();
       setSubmitted(true);
     } catch {
-      alert("Submission failed. Please try again.");
+      toast.error("Submission failed. Please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -241,15 +241,7 @@ export function ReviewForm({ onNavigate }: ReviewFormProps) {
         </div>
         <Field label="Network" value={data.section7?.networkType === "other" ? data.section7.otherNetworkName : data.section7?.networkType} />
         <Field label="Contact" value={data.section7?.coordinationContactName} />
-      </Card>
-
-      <Card>
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="text-base font-heading font-semibold">8. Radiology Network</h3>
-          <EditButton section={8} onNavigate={onNavigate} />
-        </div>
-        <Field label="Network" value={data.section8?.networkName} />
-        <Field label="Contact" value={data.section8?.coordinationContactName} />
+        <Field label="Integration Acknowledged" value={data.section7?.integrationAcknowledged ? "Yes" : "No"} />
       </Card>
 
       <Card>
@@ -263,26 +255,38 @@ export function ReviewForm({ onNavigate }: ReviewFormProps) {
       </Card>
 
       {/* Submit */}
-      <Card className="mt-4">
-        <Checkbox
-          label="This accurately reflects our program offering."
-          name="confirm"
-          checked={confirmed}
-          onChange={(e) => setConfirmed(e.target.checked)}
-          disabled={!allComplete}
-        />
-        {!allComplete && (
-          <p className="text-xs text-amber-600 mt-2">Complete all sections to submit.</p>
-        )}
-        <p className="text-xs text-muted mt-3">
-          Once submitted, this information will be used by our Care Navigation and Virtual Care teams to support your members.
-        </p>
-        <div className="mt-4">
-          <Button variant="cta" onClick={handleSubmit} disabled={!confirmed || !allComplete} loading={submitting}>
-            Submit Onboarding Form
-          </Button>
-        </div>
-      </Card>
+      {formStatus === "SUBMITTED" ? (
+        <Card className="mt-4 text-center py-8">
+          <svg className="h-12 w-12 text-success mx-auto mb-3" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+          </svg>
+          <h3 className="text-lg font-heading font-semibold text-brand-black mb-1">Form Submitted</h3>
+          <p className="text-sm text-muted max-w-md mx-auto">
+            Your onboarding information has been submitted. If you need to make changes, please contact your account manager.
+          </p>
+        </Card>
+      ) : (
+        <Card className="mt-4">
+          <Checkbox
+            label="This accurately reflects our program offering."
+            name="confirm"
+            checked={confirmed}
+            onChange={(e) => setConfirmed(e.target.checked)}
+            disabled={!allComplete}
+          />
+          {!allComplete && (
+            <p className="text-xs text-amber-600 mt-2">Complete all sections to submit.</p>
+          )}
+          <p className="text-xs text-muted mt-3">
+            Once submitted, our teams will use this information to complete your setup and kick off any scoped projects. This form will be locked after submission — any changes will need to go through your account manager.
+          </p>
+          <div className="mt-4">
+            <Button variant="cta" onClick={handleSubmit} disabled={!confirmed || !allComplete} loading={submitting}>
+              Submit Onboarding Form
+            </Button>
+          </div>
+        </Card>
+      )}
 
       <div className="pb-4">
         <Button variant="secondary" type="button" onClick={() => onNavigate?.(9)}>

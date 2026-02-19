@@ -11,6 +11,7 @@ import type { Section9Data } from "@/lib/validations/section9";
 import { useCompletion } from "@/lib/contexts/CompletionContext";
 import { useAdminForm } from "@/lib/contexts/AdminFormContext";
 import { SectionNavButtons } from "../SectionNavButtons";
+import { useSyncSectionCache, useReportDirty } from "../OnboardingClient";
 
 const STANDARD_SERVICES = [
   "Educate members on benefits and available services",
@@ -22,6 +23,7 @@ const STANDARD_SERVICES = [
 
 export function Section9Form({ initialData, onNavigate, disabled }: { initialData: Section9Data; onNavigate?: (section: number) => void; disabled?: boolean }) {
   const [data, setData] = useState<Section9Data>(initialData);
+  useSyncSectionCache(9, data);
 
   const { updateStatuses } = useCompletion();
   const adminCtx = useAdminForm();
@@ -29,7 +31,8 @@ export function Section9Form({ initialData, onNavigate, disabled }: { initialDat
     if (adminCtx?.isAdminEditing) return saveSection9ForAffiliate(adminCtx.affiliateId, d);
     return saveSection9(d);
   }, [adminCtx]);
-  const { save } = useSaveOnNext({ data, onSave, onAfterSave: updateStatuses });
+  const { save, isDirty } = useSaveOnNext({ data, onSave, onAfterSave: updateStatuses });
+  useReportDirty(9, isDirty);
 
   function update(field: keyof Section9Data, value: unknown) {
     setData((prev) => ({ ...prev, [field]: value }));

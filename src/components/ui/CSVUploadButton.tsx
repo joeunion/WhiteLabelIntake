@@ -117,7 +117,7 @@ export function CSVUploadButton<TRow>({
         },
       });
     },
-    [columns, rowSchema],
+    [columns, rowSchema, dedupKey, existingKeys],
   );
 
   function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {

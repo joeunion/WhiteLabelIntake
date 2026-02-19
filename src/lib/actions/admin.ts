@@ -233,6 +233,93 @@ export async function restoreAffiliate(affiliateId: string): Promise<void> {
   });
 }
 
+// ─── Unlock Submitted Form ──────────────────────────────────────────
+
+export async function unlockAffiliate(affiliateId: string): Promise<void> {
+  await getSuperAdminContext();
+
+  await prisma.$transaction([
+    prisma.affiliate.update({
+      where: { id: affiliateId },
+      data: {
+        status: "DRAFT",
+        submittedAt: null,
+      },
+    }),
+    prisma.affiliatePhase.updateMany({
+      where: { affiliateId, phase: 1 },
+      data: { status: "DRAFT", submittedAt: null },
+    }),
+  ]);
+}
+
+// ─── Phase Management ───────────────────────────────────────────────
+
+export interface PhaseStatus {
+  phase: number;
+  status: string;
+  unlockedAt: Date | null;
+  submittedAt: Date | null;
+}
+
+export async function getPhaseStatuses(affiliateId: string): Promise<PhaseStatus[]> {
+  await getSuperAdminContext();
+
+  const phases = await prisma.affiliatePhase.findMany({
+    where: { affiliateId },
+    orderBy: { phase: "asc" },
+    select: { phase: true, status: true, unlockedAt: true, submittedAt: true },
+  });
+  return phases;
+}
+
+export async function unlockPhase(affiliateId: string, phaseNumber: number): Promise<void> {
+  await getSuperAdminContext();
+
+  await prisma.affiliatePhase.upsert({
+    where: { affiliateId_phase: { affiliateId, phase: phaseNumber } },
+    update: { status: "DRAFT", unlockedAt: new Date(), submittedAt: null },
+    create: { affiliateId, phase: phaseNumber, status: "DRAFT", unlockedAt: new Date() },
+  });
+}
+
+export async function lockPhase(affiliateId: string, phaseNumber: number): Promise<void> {
+  await getSuperAdminContext();
+
+  if (phaseNumber === 1) {
+    // Phase 1 lock = submit the affiliate
+    await prisma.$transaction([
+      prisma.affiliate.update({
+        where: { id: affiliateId },
+        data: { status: "SUBMITTED", submittedAt: new Date() },
+      }),
+      prisma.affiliatePhase.upsert({
+        where: { affiliateId_phase: { affiliateId, phase: 1 } },
+        update: { status: "SUBMITTED", submittedAt: new Date() },
+        create: { affiliateId, phase: 1, status: "SUBMITTED", submittedAt: new Date() },
+      }),
+    ]);
+  } else {
+    await prisma.affiliatePhase.update({
+      where: { affiliateId_phase: { affiliateId, phase: phaseNumber } },
+      data: { status: "SUBMITTED", submittedAt: new Date() },
+    });
+  }
+}
+
+export async function unlockPhaseForEditing(affiliateId: string, phaseNumber: number): Promise<void> {
+  await getSuperAdminContext();
+
+  if (phaseNumber === 1) {
+    return unlockAffiliate(affiliateId);
+  }
+
+  await prisma.affiliatePhase.update({
+    where: { affiliateId_phase: { affiliateId, phase: phaseNumber } },
+    data: { status: "DRAFT", submittedAt: null },
+  });
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────
 
 function generateTempPassword(): string {

@@ -96,6 +96,8 @@ model Affiliate {
 
   // Default scheduling system for all locations
   defaultSchedulingSystem String? // "office_365" | "google_calendar" | "other"
+  defaultSchedulingOtherName    String?
+  defaultSchedulingAcknowledged Boolean @default(false)
 
   users               User[]
   programs            Program[]
@@ -108,8 +110,24 @@ model Affiliate {
   techIntegrations    TechIntegration[]
   referringProviders  ReferringProvider[]
   sectionSnapshots    SectionSnapshot[]
+  phases              AffiliatePhase[]
 
   @@map("affiliates")
+}
+
+model AffiliatePhase {
+  id          String     @id @default(cuid())
+  affiliateId String
+  affiliate   Affiliate  @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+  phase       Int        // 1, 2, 3, ...
+  status      FormStatus @default(DRAFT)
+  unlockedAt  DateTime?
+  submittedAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@unique([affiliateId, phase])
+  @@map("affiliate_phases")
 }
 
 // ─── Program-Scoped Entities ─────────────────────────────────────
@@ -137,6 +155,7 @@ model Program {
 
   // Section 4: In-Person & Extended Services
   services             Service[]
+  subServices          SubService[]
 
   // Section 1: IT Contact
   itContactName        String?
@@ -178,6 +197,19 @@ model Service {
   @@map("services")
 }
 
+model SubService {
+  id          String   @id @default(cuid())
+  programId   String
+  program     Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  serviceType String   // "labs", "imaging", etc. — matches Section 3 service types
+  subType     String   // specific sub-item handle, e.g. "hemoglobin-a1c"
+  selected    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("sub_services")
+}
+
 // ─── Operations-Scoped Entities ──────────────────────────────────
 
 model Location {
@@ -207,6 +239,8 @@ model Location {
 
   // Scheduling system override (null = use affiliate default)
   schedulingSystemOverride String?
+  schedulingOverrideOtherName    String?
+  schedulingOverrideAcknowledged Boolean @default(false)
 
   schedulingIntegrations SchedulingIntegration[]
   providerLocations      ProviderLocation[]
@@ -226,8 +260,6 @@ model SchedulingIntegration {
   serviceType       String  // "office_365" | "google_calendar" | "other"
   serviceName       String? // Only if serviceType == "other"
   accountIdentifier String?
-  requiresScopedProject Boolean @default(false)
-
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -310,7 +342,7 @@ model LabNetwork {
   coordinationContactName  String?
   coordinationContactEmail String?
   coordinationContactPhone String?
-  requiresScopedProject    Boolean @default(false)
+  integrationAcknowledged  Boolean @default(false)
 
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
@@ -323,14 +355,11 @@ model RadiologyNetwork {
   affiliateId             String
   affiliate               Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
 
-  networkName             String?
-  orderDeliveryMethod     String?
-  orderDeliveryEndpoint   String?
-  resultsDeliveryMethod   String? // "fax" | "pacs" | "ehr_portal" | "other"
-  resultsDeliveryEndpoint String?
+  networkName              String?
   coordinationContactName  String?
   coordinationContactEmail String?
   coordinationContactPhone String?
+  integrationAcknowledged  Boolean @default(false)
 
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt

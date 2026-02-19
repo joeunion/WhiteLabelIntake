@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
+import { Checkbox } from "@/components/ui/Checkbox";
 import { RadioGroup } from "@/components/ui/RadioGroup";
 import { useSaveOnNext } from "@/lib/hooks/useSaveOnNext";
 import { saveSection7 } from "@/lib/actions/section7";
@@ -11,6 +12,7 @@ import type { Section7Data } from "@/lib/validations/section7";
 import { useCompletion } from "@/lib/contexts/CompletionContext";
 import { useAdminForm } from "@/lib/contexts/AdminFormContext";
 import { SectionNavButtons } from "../SectionNavButtons";
+import { useSyncSectionCache, useReportDirty } from "../OnboardingClient";
 
 const LAB_OPTIONS = [
   { value: "quest", label: "Quest Diagnostics" },
@@ -20,6 +22,7 @@ const LAB_OPTIONS = [
 
 export function Section7Form({ initialData, onNavigate, disabled }: { initialData: Section7Data; onNavigate?: (section: number) => void; disabled?: boolean }) {
   const [data, setData] = useState<Section7Data>(initialData);
+  useSyncSectionCache(7, data);
 
   const { updateStatuses } = useCompletion();
   const adminCtx = useAdminForm();
@@ -27,7 +30,8 @@ export function Section7Form({ initialData, onNavigate, disabled }: { initialDat
     if (adminCtx?.isAdminEditing) return saveSection7ForAffiliate(adminCtx.affiliateId, d);
     return saveSection7(d);
   }, [adminCtx]);
-  const { save } = useSaveOnNext({ data, onSave, onAfterSave: updateStatuses });
+  const { save, isDirty } = useSaveOnNext({ data, onSave, onAfterSave: updateStatuses });
+  useReportDirty(7, isDirty);
 
   function update(field: keyof Section7Data, value: unknown) {
     setData((prev) => ({ ...prev, [field]: value }));
@@ -40,11 +44,14 @@ export function Section7Form({ initialData, onNavigate, disabled }: { initialDat
         <RadioGroup name="networkType" label="Which lab network does your organization use?" options={LAB_OPTIONS} value={data.networkType ?? undefined} onChange={(v) => update("networkType", v)} required />
 
         {data.networkType === "other" && (
-          <div className="mt-4">
+          <div className="mt-4 flex flex-col gap-4">
             <Input label="Network Name" required value={data.otherNetworkName ?? ""} onChange={(e) => update("otherNetworkName", e.target.value)} />
-            <p className="text-xs text-warm-orange italic mt-2">
-              Integrating with a non-standard lab network requires a scoped project. Our team will follow up with your lab coordination contact to assess feasibility and timeline.
-            </p>
+            <Checkbox
+              label="I understand that a scoped integration project will be scheduled to configure lab order and results delivery."
+              name="integrationAcknowledged"
+              checked={data.integrationAcknowledged ?? false}
+              onChange={(e) => update("integrationAcknowledged", e.target.checked)}
+            />
           </div>
         )}
       </Card>

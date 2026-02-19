@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { getSessionContext, writeSectionSnapshot } from "./helpers";
+import { getSessionContext, writeSectionSnapshot, assertNotSubmitted } from "./helpers";
 import { getCompletionStatuses } from "./completion";
 import type { Section6Data } from "@/lib/validations/section6";
 import type { CompletionStatus } from "@/types";
@@ -28,8 +28,17 @@ export async function loadSection6(): Promise<Section6Data> {
   };
 }
 
-export async function saveSection6(data: Section6Data): Promise<Record<number, CompletionStatus>> {
+interface SaveSection6Result {
+  statuses: Record<number, CompletionStatus>;
+  /** IDs assigned to each provider (same order as input). */
+  providerIds: string[];
+}
+
+export async function saveSection6(data: Section6Data): Promise<SaveSection6Result> {
   const ctx = await getSessionContext();
+  await assertNotSubmitted(ctx.affiliateId);
+
+  const providerIds: string[] = [];
 
   for (const prov of data.providers) {
     const providerData = {
@@ -47,17 +56,21 @@ export async function saveSection6(data: Section6Data): Promise<Record<number, C
         where: { id: prov.id },
         data: providerData,
       });
+      providerIds.push(prov.id);
     } else {
       const created = await prisma.provider.create({
         data: { affiliateId: ctx.affiliateId, ...providerData },
       });
-      prov.id = created.id;
+      providerIds.push(created.id);
     }
   }
 
-  await writeSectionSnapshot(6, { providers: data.providers }, ctx.userId, ctx.affiliateId);
+  // Use the resolved IDs for the snapshot (don't mutate input)
+  const providersWithIds = data.providers.map((p, i) => ({ ...p, id: providerIds[i] }));
+  await writeSectionSnapshot(6, { providers: providersWithIds }, ctx.userId, ctx.affiliateId);
 
-  return getCompletionStatuses(ctx.affiliateId);
+  const statuses = await getCompletionStatuses(ctx.affiliateId);
+  return { statuses, providerIds };
 }
 
 export async function deleteProvider(providerId: string) {

@@ -2,6 +2,7 @@
 
 import React, { useState, useCallback } from "react";
 import dynamic from "next/dynamic";
+import { toast } from "sonner";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -15,6 +16,7 @@ import { defaultWeeklySchedule } from "@/lib/validations/section5";
 import { useCompletion } from "@/lib/contexts/CompletionContext";
 import { useAdminForm } from "@/lib/contexts/AdminFormContext";
 import { SectionNavButtons } from "../SectionNavButtons";
+import { useSyncSectionCache, useReportDirty } from "../OnboardingClient";
 import { CSVUploadButton } from "@/components/ui/CSVUploadButton";
 import { LOCATION_CSV_COLUMNS, locationCSVRowSchema } from "@/lib/csv/locationColumns";
 import type { LocationCSVRow } from "@/lib/csv/locationColumns";
@@ -46,6 +48,8 @@ function emptyLocation(): LocationData {
     hasOnSiteLabs: false, hasOnSiteRadiology: false, hasOnSitePharmacy: false,
     weeklySchedule: defaultWeeklySchedule(),
     schedulingSystemOverride: null,
+    schedulingOverrideOtherName: null,
+    schedulingOverrideAcknowledged: false,
     schedulingIntegrations: [],
   };
 }
@@ -88,7 +92,12 @@ export function Section5Form({ initialData, onNavigate, disabled }: { initialDat
   const [openIndex, setOpenIndex] = useState<number>(0);
   const [data, setData] = useState<Section5Data>(() => {
     if (initialData.locations.length === 0) {
-      return { defaultSchedulingSystem: initialData.defaultSchedulingSystem ?? null, locations: [emptyLocation()] };
+      return {
+        defaultSchedulingSystem: initialData.defaultSchedulingSystem ?? null,
+        defaultSchedulingOtherName: initialData.defaultSchedulingOtherName ?? null,
+        defaultSchedulingAcknowledged: initialData.defaultSchedulingAcknowledged ?? false,
+        locations: [emptyLocation()],
+      };
     }
     return {
       ...initialData,
@@ -98,16 +107,29 @@ export function Section5Form({ initialData, onNavigate, disabled }: { initialDat
       })),
     };
   });
+  useSyncSectionCache(5, data);
 
   const { updateStatuses } = useCompletion();
   const adminCtx = useAdminForm();
 
   const onSave = useCallback(async (d: Section5Data) => {
-    if (adminCtx?.isAdminEditing) return saveSection5ForAffiliate(adminCtx.affiliateId, d);
-    return saveSection5(d);
+    const result = adminCtx?.isAdminEditing
+      ? await saveSection5ForAffiliate(adminCtx.affiliateId, d)
+      : await saveSection5(d);
+    // Assign server-generated IDs back into state immutably (no direct mutation)
+    setData((prev) => {
+      const updated = prev.locations.map((l, i) =>
+        l.id !== result.locationIds[i] ? { ...l, id: result.locationIds[i] } : l
+      );
+      return updated.some((l, i) => l !== prev.locations[i])
+        ? { ...prev, locations: updated }
+        : prev;
+    });
+    return result.statuses;
   }, [adminCtx]);
 
-  const { save } = useSaveOnNext({ data, onSave, onAfterSave: updateStatuses });
+  const { save, isDirty } = useSaveOnNext({ data, onSave, onAfterSave: updateStatuses });
+  useReportDirty(5, isDirty);
 
   function updateLocation(index: number, field: keyof LocationData, value: unknown) {
     setData((prev) => ({
@@ -157,6 +179,8 @@ export function Section5Form({ initialData, onNavigate, disabled }: { initialDat
 
   function removeLocation(index: number) {
     const loc = data.locations[index];
+    if (!loc) return;
+    const locId = loc.id;
     if (locationHasData(loc)) {
       const name = loc.locationName || `Location ${index + 1}`;
       if (!confirm(`Remove "${name}"? This location has data that will be lost.`)) return;
@@ -167,14 +191,23 @@ export function Section5Form({ initialData, onNavigate, disabled }: { initialDat
       if (index < prev) return prev - 1;
       return prev;
     });
-    // Optimistic: remove from UI immediately
-    setData((prev) => ({ ...prev, locations: prev.locations.filter((_, i) => i !== index) }));
+    // Use identity (id or reference) instead of index to avoid stale-index
+    // issues when rapidly removing multiple entries.
+    setData((prev) => ({
+      ...prev,
+      locations: prev.locations.filter((l) =>
+        locId ? l.id !== locId : l !== loc
+      ),
+    }));
     // Background: delete from DB if persisted
-    if (loc.id) {
+    if (locId) {
       const deleteFn = adminCtx?.isAdminEditing
-        ? () => deleteLocationForAffiliate(adminCtx.affiliateId, loc.id!)
-        : () => deleteLocation(loc.id!);
-      deleteFn().catch((err) => console.error("Failed to delete location:", err));
+        ? () => deleteLocationForAffiliate(adminCtx.affiliateId, locId)
+        : () => deleteLocation(locId);
+      deleteFn().catch((err) => {
+        console.error("Failed to delete location:", err);
+        toast.error("Failed to remove location. It may reappear on refresh.");
+      });
     }
   }
 
@@ -216,7 +249,17 @@ export function Section5Form({ initialData, onNavigate, disabled }: { initialDat
       ...emptyLocation(),
       ...row,
     } as LocationData));
-    setData((prev) => ({ ...prev, locations: [...prev.locations, ...newLocations] }));
+    // Compute updated data outside the state setter so we can save
+    // without side effects inside React's state updater (strict-mode safe).
+    let updated: Section5Data;
+    setData((prev) => {
+      updated = { ...prev, locations: [...prev.locations, ...newLocations] };
+      return updated;
+    });
+    // Save outside the setter — fires once even in React strict mode
+    onSave(updated!).then(updateStatuses).catch(() => {
+      toast.error("Some imported locations could not be saved.");
+    });
   }
 
   function removeScheduling(locIndex: number, siIndex: number) {
@@ -248,10 +291,30 @@ export function Section5Form({ initialData, onNavigate, disabled }: { initialDat
           label="Scheduling System"
           name="defaultSchedulingSystem"
           value={data.defaultSchedulingSystem ?? ""}
-          onChange={(e) => setData((prev) => ({ ...prev, defaultSchedulingSystem: e.target.value || null }))}
+          onChange={(e) => setData((prev) => ({
+            ...prev,
+            defaultSchedulingSystem: e.target.value || null,
+            ...(e.target.value !== "other" ? { defaultSchedulingOtherName: null, defaultSchedulingAcknowledged: false } : {}),
+          }))}
           options={SCHEDULING_OPTIONS}
           placeholder="Select default system"
         />
+        {data.defaultSchedulingSystem === "other" && (
+          <div className="mt-4 space-y-3">
+            <Input
+              label="Scheduling System Name"
+              required
+              value={data.defaultSchedulingOtherName ?? ""}
+              onChange={(e) => setData((prev) => ({ ...prev, defaultSchedulingOtherName: e.target.value }))}
+              placeholder="e.g., eClinicalWorks, Athenahealth"
+            />
+            <Checkbox
+              label="I understand that integrating with a non-standard scheduling system requires a scoped project. Our team will follow up to assess feasibility and timeline."
+              checked={data.defaultSchedulingAcknowledged ?? false}
+              onChange={(e) => setData((prev) => ({ ...prev, defaultSchedulingAcknowledged: e.target.checked }))}
+            />
+          </div>
+        )}
       </Card>
 
       {data.locations.map((loc, locIndex) => {
@@ -317,7 +380,7 @@ export function Section5Form({ initialData, onNavigate, disabled }: { initialDat
           <Card key={locIndex}>
             <div className="flex justify-between items-start mb-4">
               <div className="flex items-center gap-2">
-                <h3 className="text-lg font-heading font-semibold">Location {locIndex + 1}</h3>
+                <h3 className="text-lg font-heading font-semibold">{loc.locationName || `Location ${locIndex + 1}`}</h3>
                 {isComplete ? (
                   <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700">
                     <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor"><path fillRule="evenodd" d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16Zm3.78-9.72a.75.75 0 0 0-1.06-1.06L7 8.94 5.28 7.22a.75.75 0 0 0-1.06 1.06l2.25 2.25a.75.75 0 0 0 1.06 0l4.25-4.25Z" clipRule="evenodd" /></svg>
@@ -392,21 +455,62 @@ export function Section5Form({ initialData, onNavigate, disabled }: { initialDat
                       : "No default set. Select a system for this location or set a default above."}
                   </p>
                   <Checkbox
-                    label="Override scheduling system for this location"
+                    label="Does this location use a different scheduling system?"
                     checked={loc.schedulingSystemOverride != null}
                     onChange={(e) => {
-                      updateLocation(locIndex, "schedulingSystemOverride", e.target.checked ? (data.defaultSchedulingSystem ?? "office_365") : null);
+                      if (e.target.checked) {
+                        updateLocation(locIndex, "schedulingSystemOverride", data.defaultSchedulingSystem ?? "office_365");
+                      } else {
+                        setData((prev) => ({
+                          ...prev,
+                          locations: prev.locations.map((l, i) =>
+                            i === locIndex
+                              ? { ...l, schedulingSystemOverride: null, schedulingOverrideOtherName: null, schedulingOverrideAcknowledged: false }
+                              : l
+                          ),
+                        }));
+                      }
                     }}
                   />
                   {loc.schedulingSystemOverride != null && (
-                    <div className="mt-3">
+                    <div className="mt-3 space-y-3">
                       <Select
                         label="Location Scheduling System"
                         value={loc.schedulingSystemOverride ?? ""}
-                        onChange={(e) => updateLocation(locIndex, "schedulingSystemOverride", e.target.value || null)}
+                        onChange={(e) => {
+                          const val = e.target.value || null;
+                          setData((prev) => ({
+                            ...prev,
+                            locations: prev.locations.map((l, i) =>
+                              i === locIndex
+                                ? {
+                                    ...l,
+                                    schedulingSystemOverride: val,
+                                    ...(val !== "other" ? { schedulingOverrideOtherName: null, schedulingOverrideAcknowledged: false } : {}),
+                                  }
+                                : l
+                            ),
+                          }));
+                        }}
                         options={SCHEDULING_OPTIONS}
                         placeholder="Select system"
                       />
+                      {loc.schedulingSystemOverride === "other" && (
+                        <>
+                          <Input
+                            label="Scheduling System Name"
+                            required
+                            value={loc.schedulingOverrideOtherName ?? ""}
+                            onChange={(e) => updateLocation(locIndex, "schedulingOverrideOtherName", e.target.value)}
+                            placeholder="e.g., eClinicalWorks, Athenahealth"
+                          />
+                          <Checkbox
+                            label="I understand that integrating with a non-standard scheduling system requires a scoped project. Our team will follow up to assess feasibility and timeline."
+                            checked={loc.schedulingOverrideAcknowledged ?? false}
+                            onChange={(e) => updateLocation(locIndex, "schedulingOverrideAcknowledged", e.target.checked)}
+                          />
+                        </>
+                      )}
                     </div>
                   )}
 

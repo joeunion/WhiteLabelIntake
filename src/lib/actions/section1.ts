@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { getSessionContext, writeSectionSnapshot } from "./helpers";
+import { getSessionContext, writeSectionSnapshot, assertNotSubmitted } from "./helpers";
 import { getCompletionStatuses } from "./completion";
 import { section1Schema, type Section1Data } from "@/lib/validations/section1";
 import type { Prisma } from "@prisma/client";
@@ -46,6 +46,7 @@ export async function loadSection1(): Promise<Section1Data> {
 
 export async function saveSection1(data: Section1Data): Promise<Record<number, CompletionStatus>> {
   const ctx = await getSessionContext();
+  await assertNotSubmitted(ctx.affiliateId);
   const parsed = section1Schema.parse(data);
 
   // Update affiliate legal name

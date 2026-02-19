@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { getSessionContext, writeSectionSnapshot } from "./helpers";
+import { getSessionContext, writeSectionSnapshot, assertNotSubmitted } from "./helpers";
 import { getCompletionStatuses } from "./completion";
 import { SERVICE_TYPES } from "@/lib/validations/section3";
 import type { Section3Data } from "@/lib/validations/section3";
@@ -22,7 +22,7 @@ export async function loadSection3(): Promise<Section3Data> {
   return {
     services: SERVICE_TYPES.map((st) => ({
       serviceType: st.value,
-      selected: serviceMap.get(st.value)?.selected ?? false,
+      selected: ("locked" in st && st.locked) ? true : (serviceMap.get(st.value)?.selected ?? false),
       otherName: serviceMap.get(st.value)?.otherName ?? "",
     })),
   };
@@ -30,6 +30,7 @@ export async function loadSection3(): Promise<Section3Data> {
 
 export async function saveSection3(data: Section3Data): Promise<Record<number, CompletionStatus>> {
   const ctx = await getSessionContext();
+  await assertNotSubmitted(ctx.affiliateId);
   if (!ctx.programId) return getCompletionStatuses(ctx.affiliateId);
 
   // Replace all services in one transaction: deleteMany + createMany (PgBouncer-safe)
