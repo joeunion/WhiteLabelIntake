@@ -25,6 +25,8 @@ export const locationSchema = z.object({
   hasOnSitePharmacy: z.boolean().default(false),
   weeklySchedule: z.array(dayScheduleSchema).optional(),
   schedulingSystemOverride: z.string().optional().nullable(),
+  schedulingOverrideOtherName: z.string().optional().nullable(),
+  schedulingOverrideAcknowledged: z.boolean().default(false),
   schedulingIntegrations: z.array(
     z.object({
       id: z.string().optional(),
@@ -37,6 +39,8 @@ export const locationSchema = z.object({
 
 export const section5Schema = z.object({
   defaultSchedulingSystem: z.string().optional().nullable(),
+  defaultSchedulingOtherName: z.string().optional().nullable(),
+  defaultSchedulingAcknowledged: z.boolean().default(false),
   locations: z.array(locationSchema),
 });
 

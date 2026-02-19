@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { getSessionContext, writeSectionSnapshot } from "./helpers";
+import { getSessionContext, writeSectionSnapshot, assertNotSubmitted } from "./helpers";
 import { getCompletionStatuses } from "./completion";
 import type { Section5Data, LocationData } from "@/lib/validations/section5";
 import { Prisma } from "@prisma/client";
@@ -12,7 +12,7 @@ export async function loadSection5(): Promise<Section5Data> {
 
   const affiliate = await prisma.affiliate.findUnique({
     where: { id: ctx.affiliateId },
-    select: { defaultSchedulingSystem: true },
+    select: { defaultSchedulingSystem: true, defaultSchedulingOtherName: true, defaultSchedulingAcknowledged: true },
   });
 
   const locations = await prisma.location.findMany({
@@ -23,6 +23,8 @@ export async function loadSection5(): Promise<Section5Data> {
 
   return {
     defaultSchedulingSystem: affiliate?.defaultSchedulingSystem ?? null,
+    defaultSchedulingOtherName: affiliate?.defaultSchedulingOtherName ?? null,
+    defaultSchedulingAcknowledged: affiliate?.defaultSchedulingAcknowledged ?? false,
     locations: locations.map((loc) => ({
       id: loc.id,
       locationName: loc.locationName ?? "",
@@ -41,6 +43,8 @@ export async function loadSection5(): Promise<Section5Data> {
       hasOnSitePharmacy: loc.hasOnSitePharmacy,
       weeklySchedule: (loc.weeklySchedule as LocationData["weeklySchedule"]) ?? undefined,
       schedulingSystemOverride: loc.schedulingSystemOverride ?? null,
+      schedulingOverrideOtherName: loc.schedulingOverrideOtherName ?? null,
+      schedulingOverrideAcknowledged: loc.schedulingOverrideAcknowledged ?? false,
       schedulingIntegrations: loc.schedulingIntegrations.map((si) => ({
         id: si.id,
         serviceType: si.serviceType as "office_365" | "google_calendar" | "other",
@@ -51,13 +55,26 @@ export async function loadSection5(): Promise<Section5Data> {
   };
 }
 
-export async function saveSection5(data: Section5Data): Promise<Record<number, CompletionStatus>> {
+interface SaveSection5Result {
+  statuses: Record<number, CompletionStatus>;
+  /** IDs assigned to each location (same order as input). */
+  locationIds: string[];
+}
+
+export async function saveSection5(data: Section5Data): Promise<SaveSection5Result> {
   const ctx = await getSessionContext();
+  await assertNotSubmitted(ctx.affiliateId);
 
   await prisma.affiliate.update({
     where: { id: ctx.affiliateId },
-    data: { defaultSchedulingSystem: data.defaultSchedulingSystem || null },
+    data: {
+      defaultSchedulingSystem: data.defaultSchedulingSystem || null,
+      defaultSchedulingOtherName: data.defaultSchedulingSystem === "other" ? (data.defaultSchedulingOtherName || null) : null,
+      defaultSchedulingAcknowledged: data.defaultSchedulingSystem === "other" ? (data.defaultSchedulingAcknowledged ?? false) : false,
+    },
   });
+
+  const locationIds: string[] = [];
 
   for (const loc of data.locations) {
     const locationData = {
@@ -77,6 +94,8 @@ export async function saveSection5(data: Section5Data): Promise<Record<number, C
       hasOnSitePharmacy: loc.hasOnSitePharmacy ?? false,
       weeklySchedule: loc.weeklySchedule ? (loc.weeklySchedule as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
       schedulingSystemOverride: loc.schedulingSystemOverride || null,
+      schedulingOverrideOtherName: loc.schedulingSystemOverride === "other" ? (loc.schedulingOverrideOtherName || null) : null,
+      schedulingOverrideAcknowledged: loc.schedulingSystemOverride === "other" ? (loc.schedulingOverrideAcknowledged ?? false) : false,
     };
 
     if (loc.id) {
@@ -97,11 +116,11 @@ export async function saveSection5(data: Section5Data): Promise<Record<number, C
               serviceType: si.serviceType,
               serviceName: si.serviceName || null,
               accountIdentifier: si.accountIdentifier || null,
-              requiresScopedProject: si.serviceType === "other",
             })),
           }),
         ]);
       }
+      locationIds.push(loc.id);
     } else {
       const created = await prisma.location.create({
         data: {
@@ -117,18 +136,20 @@ export async function saveSection5(data: Section5Data): Promise<Record<number, C
             serviceType: si.serviceType,
             serviceName: si.serviceName || null,
             accountIdentifier: si.accountIdentifier || null,
-            requiresScopedProject: si.serviceType === "other",
-          })),
+})),
         });
       }
 
-      loc.id = created.id;
+      locationIds.push(created.id);
     }
   }
 
-  await writeSectionSnapshot(5, { defaultSchedulingSystem: data.defaultSchedulingSystem, locations: data.locations }, ctx.userId, ctx.affiliateId);
+  // Use resolved IDs for snapshot (don't mutate input)
+  const locationsWithIds = data.locations.map((l, i) => ({ ...l, id: locationIds[i] }));
+  await writeSectionSnapshot(5, { defaultSchedulingSystem: data.defaultSchedulingSystem, locations: locationsWithIds }, ctx.userId, ctx.affiliateId);
 
-  return getCompletionStatuses(ctx.affiliateId);
+  const statuses = await getCompletionStatuses(ctx.affiliateId);
+  return { statuses, locationIds };
 }
 
 export async function deleteLocation(locationId: string) {

@@ -88,6 +88,38 @@ export async function getContextForAffiliate(targetAffiliateId: string): Promise
 }
 
 /**
+ * Throws if the affiliate's form has been submitted (status = SUBMITTED).
+ * Call at the top of save actions to enforce read-only after submission.
+ */
+export async function assertNotSubmitted(affiliateId: string) {
+  const aff = await prisma.affiliate.findUnique({
+    where: { id: affiliateId },
+    select: { status: true },
+  });
+  if (aff?.status === "SUBMITTED") {
+    throw new Error("This form has been submitted and is locked. Contact your account manager to request changes.");
+  }
+}
+
+/**
+ * Phase-aware version of assertNotSubmitted.
+ * Throws if the given phase has already been submitted.
+ */
+export async function assertPhaseNotSubmitted(affiliateId: string, phase: number) {
+  if (phase === 1) {
+    // Phase 1 still uses legacy Affiliate.status for backwards compatibility
+    return assertNotSubmitted(affiliateId);
+  }
+  const phaseRecord = await prisma.affiliatePhase.findUnique({
+    where: { affiliateId_phase: { affiliateId, phase } },
+    select: { status: true },
+  });
+  if (phaseRecord?.status === "SUBMITTED") {
+    throw new Error(`Phase ${phase} has been submitted and is locked. Contact your account manager to request changes.`);
+  }
+}
+
+/**
  * Writes a section snapshot to the history table.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -12,6 +12,7 @@ import type { Section4Data } from "@/lib/validations/section4";
 import { useCompletion } from "@/lib/contexts/CompletionContext";
 import { useAdminForm } from "@/lib/contexts/AdminFormContext";
 import { SectionNavButtons } from "../SectionNavButtons";
+import { useSyncSectionCache, useReportDirty } from "../OnboardingClient";
 
 const ACCOUNT_TYPE_OPTIONS = [
   { value: "checking", label: "Checking" },
@@ -20,6 +21,7 @@ const ACCOUNT_TYPE_OPTIONS = [
 
 export function Section4Form({ initialData, onNavigate, disabled }: { initialData: Section4Data; onNavigate?: (section: number) => void; disabled?: boolean }) {
   const [data, setData] = useState<Section4Data>(initialData);
+  useSyncSectionCache(4, data);
   const { updateStatuses } = useCompletion();
   const adminCtx = useAdminForm();
 
@@ -28,7 +30,8 @@ export function Section4Form({ initialData, onNavigate, disabled }: { initialDat
     return saveSection4(d);
   }, [adminCtx]);
 
-  const { save } = useSaveOnNext({ data, onSave, onAfterSave: updateStatuses });
+  const { save, isDirty } = useSaveOnNext({ data, onSave, onAfterSave: updateStatuses });
+  useReportDirty(4, isDirty);
 
   function update(field: keyof Section4Data, value: string | null) {
     setData((prev) => ({ ...prev, [field]: value }));

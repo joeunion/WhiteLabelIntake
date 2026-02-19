@@ -8,26 +8,27 @@ interface CheckboxProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "typ
 }
 
 export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
-  ({ label, helperText, className = "", id, ...props }, ref) => {
+  ({ label, helperText, className = "", id, disabled, ...props }, ref) => {
     const checkboxId = id || props.name;
 
     return (
-      <div className={`flex items-start gap-3 ${className}`}>
+      <div className={`flex items-start gap-3 ${disabled ? "opacity-60" : ""} ${className}`}>
         <input
           ref={ref}
           type="checkbox"
           id={checkboxId}
-          className="
+          disabled={disabled}
+          className={`
             mt-1 h-5 w-5
             rounded border-border
             text-brand-teal
             focus:ring-brand-teal focus:ring-offset-0
-            cursor-pointer
-          "
+            ${disabled ? "cursor-not-allowed" : "cursor-pointer"}
+          `}
           {...props}
         />
         <div className="flex flex-col">
-          <label htmlFor={checkboxId} className="text-base text-foreground cursor-pointer">
+          <label htmlFor={checkboxId} className={`text-base text-foreground ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}>
             {label}
           </label>
           {helperText && (

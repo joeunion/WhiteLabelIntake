@@ -35,6 +35,8 @@ export default async function AdminEditPage({
           sectionData={data.sections}
           initialStatuses={data.statuses}
           affiliateId={affiliateId}
+          phases={data.phases}
+          formStatus={data.formStatus}
         />
       </AdminFormProvider>
     </div>

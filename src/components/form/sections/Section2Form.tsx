@@ -10,6 +10,7 @@ import type { Section2Data } from "@/lib/validations/section2";
 import { useCompletion } from "@/lib/contexts/CompletionContext";
 import { useAdminForm } from "@/lib/contexts/AdminFormContext";
 import { SectionNavButtons } from "../SectionNavButtons";
+import { useSyncSectionCache, useReportDirty } from "../OnboardingClient";
 
 const DEFAULT_SERVICES = [
   "Unlimited 24/7 $0 virtual primary care and sick visits",
@@ -21,6 +22,7 @@ const DEFAULT_SERVICES = [
 
 export function Section2Form({ initialData, onNavigate, disabled }: { initialData: Section2Data; onNavigate?: (section: number) => void; disabled?: boolean }) {
   const [data, setData] = useState<Section2Data>(initialData);
+  useSyncSectionCache(2, data);
   const { updateStatuses } = useCompletion();
   const adminCtx = useAdminForm();
 
@@ -29,7 +31,8 @@ export function Section2Form({ initialData, onNavigate, disabled }: { initialDat
     return saveSection2(d);
   }, []);
 
-  const { save } = useSaveOnNext({ data, onSave, onAfterSave: updateStatuses });
+  const { save, isDirty } = useSaveOnNext({ data, onSave, onAfterSave: updateStatuses });
+  useReportDirty(2, isDirty);
 
   return (
     <div className="flex flex-col gap-6">
@@ -52,7 +55,7 @@ export function Section2Form({ initialData, onNavigate, disabled }: { initialDat
 
         <div className="border-t border-border pt-4">
           <Checkbox
-            label="I confirm this accurately reflects what's included in our program."
+            label="Confirmed"
             name="defaultServicesConfirmed"
             checked={data.defaultServicesConfirmed}
             onChange={(e) =>

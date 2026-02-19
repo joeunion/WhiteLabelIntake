@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { getSessionContext, writeSectionSnapshot } from "./helpers";
+import { getSessionContext, writeSectionSnapshot, assertNotSubmitted } from "./helpers";
 import { getCompletionStatuses } from "./completion";
 import type { Section7Data } from "@/lib/validations/section7";
 import type { CompletionStatus } from "@/types";
@@ -19,11 +19,13 @@ export async function loadSection7(): Promise<Section7Data> {
     coordinationContactName: labNetwork?.coordinationContactName ?? "",
     coordinationContactEmail: labNetwork?.coordinationContactEmail ?? "",
     coordinationContactPhone: labNetwork?.coordinationContactPhone ?? "",
+    integrationAcknowledged: labNetwork?.integrationAcknowledged ?? false,
   };
 }
 
 export async function saveSection7(data: Section7Data): Promise<Record<number, CompletionStatus>> {
   const ctx = await getSessionContext();
+  await assertNotSubmitted(ctx.affiliateId);
 
   const existing = await prisma.labNetwork.findFirst({
     where: { affiliateId: ctx.affiliateId },
@@ -35,7 +37,7 @@ export async function saveSection7(data: Section7Data): Promise<Record<number, C
     coordinationContactName: data.coordinationContactName || null,
     coordinationContactEmail: data.coordinationContactEmail || null,
     coordinationContactPhone: data.coordinationContactPhone || null,
-    requiresScopedProject: data.networkType === "other",
+    integrationAcknowledged: data.integrationAcknowledged ?? false,
   };
 
   if (existing) {

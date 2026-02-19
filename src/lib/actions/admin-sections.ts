@@ -13,6 +13,7 @@ import type { Section6Data } from "@/lib/validations/section6";
 import type { Section7Data } from "@/lib/validations/section7";
 import type { Section8Data } from "@/lib/validations/section8";
 import type { Section9Data } from "@/lib/validations/section9";
+import type { Section11Data } from "@/lib/validations/section11";
 import { Prisma } from "@prisma/client";
 import type { CompletionStatus } from "@/types";
 
@@ -146,13 +147,19 @@ export async function saveSection4ForAffiliate(
 export async function saveSection5ForAffiliate(
   affiliateId: string,
   data: Section5Data
-): Promise<Record<number, CompletionStatus>> {
+): Promise<{ statuses: Record<number, CompletionStatus>; locationIds: string[] }> {
   const ctx = await getContextForAffiliate(affiliateId);
 
   await prisma.affiliate.update({
     where: { id: ctx.affiliateId },
-    data: { defaultSchedulingSystem: data.defaultSchedulingSystem || null },
+    data: {
+      defaultSchedulingSystem: data.defaultSchedulingSystem || null,
+      defaultSchedulingOtherName: data.defaultSchedulingSystem === "other" ? (data.defaultSchedulingOtherName || null) : null,
+      defaultSchedulingAcknowledged: data.defaultSchedulingSystem === "other" ? (data.defaultSchedulingAcknowledged ?? false) : false,
+    },
   });
+
+  const locationIds: string[] = [];
 
   for (const loc of data.locations) {
     const locationData = {
@@ -171,6 +178,8 @@ export async function saveSection5ForAffiliate(
       hasOnSitePharmacy: loc.hasOnSitePharmacy ?? false,
       weeklySchedule: loc.weeklySchedule ? (loc.weeklySchedule as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
       schedulingSystemOverride: loc.schedulingSystemOverride || null,
+      schedulingOverrideOtherName: loc.schedulingSystemOverride === "other" ? (loc.schedulingOverrideOtherName || null) : null,
+      schedulingOverrideAcknowledged: loc.schedulingSystemOverride === "other" ? (loc.schedulingOverrideAcknowledged ?? false) : false,
     };
 
     if (loc.id) {
@@ -185,11 +194,11 @@ export async function saveSection5ForAffiliate(
               serviceType: si.serviceType,
               serviceName: si.serviceName || null,
               accountIdentifier: si.accountIdentifier || null,
-              requiresScopedProject: si.serviceType === "other",
             })),
           }),
         ]);
       }
+      locationIds.push(loc.id);
     } else {
       const created = await prisma.location.create({
         data: { affiliateId: ctx.affiliateId, ...locationData },
@@ -202,17 +211,18 @@ export async function saveSection5ForAffiliate(
             serviceType: si.serviceType,
             serviceName: si.serviceName || null,
             accountIdentifier: si.accountIdentifier || null,
-            requiresScopedProject: si.serviceType === "other",
-          })),
+})),
         });
       }
 
-      loc.id = created.id;
+      locationIds.push(created.id);
     }
   }
 
-  await writeSectionSnapshot(5, { defaultSchedulingSystem: data.defaultSchedulingSystem, locations: data.locations }, ctx.userId, ctx.affiliateId);
-  return getCompletionStatuses(ctx.affiliateId);
+  const locationsWithIds = data.locations.map((l, i) => ({ ...l, id: locationIds[i] }));
+  await writeSectionSnapshot(5, { defaultSchedulingSystem: data.defaultSchedulingSystem, locations: locationsWithIds }, ctx.userId, ctx.affiliateId);
+  const statuses = await getCompletionStatuses(ctx.affiliateId);
+  return { statuses, locationIds };
 }
 
 export async function deleteLocationForAffiliate(affiliateId: string, locationId: string) {
@@ -231,8 +241,10 @@ export async function deleteLocationForAffiliate(affiliateId: string, locationId
 export async function saveSection6ForAffiliate(
   affiliateId: string,
   data: Section6Data
-): Promise<Record<number, CompletionStatus>> {
+): Promise<{ statuses: Record<number, CompletionStatus>; providerIds: string[] }> {
   const ctx = await getContextForAffiliate(affiliateId);
+
+  const providerIds: string[] = [];
 
   for (const prov of data.providers) {
     const providerData = {
@@ -247,16 +259,19 @@ export async function saveSection6ForAffiliate(
 
     if (prov.id) {
       await prisma.provider.update({ where: { id: prov.id }, data: providerData });
+      providerIds.push(prov.id);
     } else {
       const created = await prisma.provider.create({
         data: { affiliateId: ctx.affiliateId, ...providerData },
       });
-      prov.id = created.id;
+      providerIds.push(created.id);
     }
   }
 
-  await writeSectionSnapshot(6, { providers: data.providers }, ctx.userId, ctx.affiliateId);
-  return getCompletionStatuses(ctx.affiliateId);
+  const providersWithIds = data.providers.map((p, i) => ({ ...p, id: providerIds[i] }));
+  await writeSectionSnapshot(6, { providers: providersWithIds }, ctx.userId, ctx.affiliateId);
+  const statuses = await getCompletionStatuses(ctx.affiliateId);
+  return { statuses, providerIds };
 }
 
 export async function deleteProviderForAffiliate(affiliateId: string, providerId: string) {
@@ -288,7 +303,7 @@ export async function saveSection7ForAffiliate(
     coordinationContactName: data.coordinationContactName || null,
     coordinationContactEmail: data.coordinationContactEmail || null,
     coordinationContactPhone: data.coordinationContactPhone || null,
-    requiresScopedProject: data.networkType === "other",
+    integrationAcknowledged: data.integrationAcknowledged ?? false,
   };
 
   if (existing) {
@@ -315,13 +330,10 @@ export async function saveSection8ForAffiliate(
 
   const netData = {
     networkName: data.networkName || null,
-    orderDeliveryMethod: data.orderDeliveryMethod || null,
-    orderDeliveryEndpoint: data.orderDeliveryEndpoint || null,
-    resultsDeliveryMethod: data.resultsDeliveryMethod || null,
-    resultsDeliveryEndpoint: data.resultsDeliveryEndpoint || null,
     coordinationContactName: data.coordinationContactName || null,
     coordinationContactEmail: data.coordinationContactEmail || null,
     coordinationContactPhone: data.coordinationContactPhone || null,
+    integrationAcknowledged: data.integrationAcknowledged ?? false,
   };
 
   if (existing) {
@@ -361,5 +373,36 @@ export async function saveSection9ForAffiliate(
   }
 
   await writeSectionSnapshot(9, data, ctx.userId, ctx.affiliateId);
+  return getCompletionStatuses(ctx.affiliateId);
+}
+
+// ─── Section 11 ─────────────────────────────────────────────────────
+
+export async function saveSection11ForAffiliate(
+  affiliateId: string,
+  data: Section11Data
+): Promise<Record<number, CompletionStatus>> {
+  const ctx = await getContextForAffiliate(affiliateId);
+  if (!ctx.programId) return getCompletionStatuses(ctx.affiliateId);
+
+  // Flatten categories into SubService records
+  const records: { programId: string; serviceType: string; subType: string; selected: boolean }[] = [];
+  for (const [serviceType, items] of Object.entries(data.categories)) {
+    for (const item of items) {
+      records.push({
+        programId: ctx.programId,
+        serviceType,
+        subType: item.subType,
+        selected: item.selected,
+      });
+    }
+  }
+
+  await prisma.$transaction([
+    prisma.subService.deleteMany({ where: { programId: ctx.programId } }),
+    prisma.subService.createMany({ data: records }),
+  ]);
+
+  await writeSectionSnapshot(11, data, ctx.userId, ctx.affiliateId, ctx.programId);
   return getCompletionStatuses(ctx.affiliateId);
 }

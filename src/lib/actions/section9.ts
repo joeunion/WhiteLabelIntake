@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { getSessionContext, writeSectionSnapshot } from "./helpers";
+import { getSessionContext, writeSectionSnapshot, assertNotSubmitted } from "./helpers";
 import { getCompletionStatuses } from "./completion";
 import type { Section9Data } from "@/lib/validations/section9";
 import type { CompletionStatus } from "@/types";
@@ -24,6 +24,7 @@ export async function loadSection9(): Promise<Section9Data> {
 
 export async function saveSection9(data: Section9Data): Promise<Record<number, CompletionStatus>> {
   const ctx = await getSessionContext();
+  await assertNotSubmitted(ctx.affiliateId);
 
   const existing = await prisma.careNavConfig.findFirst({
     where: { affiliateId: ctx.affiliateId },

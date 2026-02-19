@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getSessionContext, getContextForAffiliate } from "./helpers";
 import { decryptField } from "@/lib/encryption";
 import { SERVICE_TYPES } from "@/lib/validations/section3";
+import { SUB_SERVICE_TYPES } from "@/lib/validations/section11";
 import { defaultWeeklySchedule } from "@/lib/validations/section5";
 import type { AllSectionData } from "@/components/form/OnboardingClient";
 import type { CompletionStatus } from "@/types";
@@ -16,10 +17,18 @@ import type { Section6Data } from "@/lib/validations/section6";
 import type { Section7Data } from "@/lib/validations/section7";
 import type { Section8Data } from "@/lib/validations/section8";
 import type { Section9Data } from "@/lib/validations/section9";
+import type { Section11Data } from "@/lib/validations/section11";
+
+interface PhaseInfo {
+  phase: number;
+  status: string;
+}
 
 interface OnboardingData {
   sections: AllSectionData;
   statuses: Record<number, CompletionStatus>;
+  formStatus: string;
+  phases: PhaseInfo[];
 }
 
 /**
@@ -38,13 +47,66 @@ export async function loadAllOnboardingData(): Promise<OnboardingData> {
   return loadOnboardingDataByAffiliateId(ctx.affiliateId);
 }
 
+/**
+ * Lightweight fetch of just the affiliate's form status (DRAFT / SUBMITTED).
+ */
+export async function getMyFormStatus(): Promise<string> {
+  const ctx = await getSessionContext();
+  const aff = await prisma.affiliate.findUnique({
+    where: { id: ctx.affiliateId },
+    select: { status: true },
+  });
+  return aff?.status ?? "DRAFT";
+}
+
+export async function getFormStatus(affiliateId: string): Promise<string> {
+  await getContextForAffiliate(affiliateId);
+  const aff = await prisma.affiliate.findUnique({
+    where: { id: affiliateId },
+    select: { status: true },
+  });
+  return aff?.status ?? "DRAFT";
+}
+
+/**
+ * Fetch fresh phase info for the current user's affiliate.
+ */
+export async function getMyPhases(): Promise<PhaseInfo[]> {
+  const ctx = await getSessionContext();
+  return getPhasesByAffiliateId(ctx.affiliateId);
+}
+
+/**
+ * Fetch fresh phase info for a specific affiliate (admin use).
+ */
+export async function getPhases(affiliateId: string): Promise<PhaseInfo[]> {
+  await getContextForAffiliate(affiliateId);
+  return getPhasesByAffiliateId(affiliateId);
+}
+
+async function getPhasesByAffiliateId(affiliateId: string): Promise<PhaseInfo[]> {
+  const affiliate = await prisma.affiliate.findUnique({
+    where: { id: affiliateId },
+    select: { status: true, phases: { orderBy: { phase: "asc" as const } } },
+  });
+  if (!affiliate) return [{ phase: 1, status: "DRAFT" }];
+  const phases: PhaseInfo[] = affiliate.phases.map((p) => ({
+    phase: p.phase,
+    status: p.status,
+  }));
+  if (!phases.find((p) => p.phase === 1)) {
+    phases.unshift({ phase: 1, status: affiliate.status });
+  }
+  return phases;
+}
+
 async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<OnboardingData> {
   const affiliate = await prisma.affiliate.findUnique({
     where: { id: affiliateId },
     include: {
       programs: {
         take: 1,
-        include: { services: true },
+        include: { services: true, subServices: true },
       },
       locations: {
         include: { schedulingIntegrations: true },
@@ -56,6 +118,7 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
       labNetworks: { take: 1 },
       radiologyNetworks: { take: 1 },
       careNavConfigs: { take: 1 },
+      phases: { orderBy: { phase: "asc" } },
     },
   });
 
@@ -65,6 +128,17 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
   const lab = affiliate.labNetworks[0] ?? null;
   const rad = affiliate.radiologyNetworks[0] ?? null;
   const cn = affiliate.careNavConfigs[0] ?? null;
+
+  // --- Phase data ---
+  const phases: PhaseInfo[] = affiliate.phases.map((p) => ({
+    phase: p.phase,
+    status: p.status,
+  }));
+  // Ensure Phase 1 exists
+  if (!phases.find((p) => p.phase === 1)) {
+    phases.unshift({ phase: 1, status: affiliate.status });
+  }
+  const unlockedPhaseNumbers = phases.map((p) => p.phase);
 
   // --- Transform into section data shapes ---
 
@@ -110,6 +184,8 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
 
   const s5: Section5Data = {
     defaultSchedulingSystem: affiliate.defaultSchedulingSystem ?? null,
+    defaultSchedulingOtherName: affiliate.defaultSchedulingOtherName ?? null,
+    defaultSchedulingAcknowledged: affiliate.defaultSchedulingAcknowledged ?? false,
     locations: affiliate.locations.map((loc) => ({
       id: loc.id,
       locationName: loc.locationName ?? "",
@@ -127,6 +203,8 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
       hasOnSitePharmacy: loc.hasOnSitePharmacy,
       weeklySchedule: (loc.weeklySchedule as LocationData["weeklySchedule"]) ?? defaultWeeklySchedule(),
       schedulingSystemOverride: loc.schedulingSystemOverride ?? null,
+      schedulingOverrideOtherName: loc.schedulingOverrideOtherName ?? null,
+      schedulingOverrideAcknowledged: loc.schedulingOverrideAcknowledged ?? false,
       schedulingIntegrations: loc.schedulingIntegrations.map((si) => ({
         id: si.id,
         serviceType: si.serviceType as "office_365" | "google_calendar" | "other",
@@ -155,17 +233,15 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
     coordinationContactName: lab?.coordinationContactName ?? "",
     coordinationContactEmail: lab?.coordinationContactEmail ?? "",
     coordinationContactPhone: lab?.coordinationContactPhone ?? "",
+    integrationAcknowledged: lab?.integrationAcknowledged ?? false,
   };
 
   const s8: Section8Data = {
     networkName: rad?.networkName ?? "",
-    orderDeliveryMethod: rad?.orderDeliveryMethod ?? "",
-    orderDeliveryEndpoint: rad?.orderDeliveryEndpoint ?? "",
-    resultsDeliveryMethod: (rad?.resultsDeliveryMethod as Section8Data["resultsDeliveryMethod"]) ?? null,
-    resultsDeliveryEndpoint: rad?.resultsDeliveryEndpoint ?? "",
     coordinationContactName: rad?.coordinationContactName ?? "",
     coordinationContactEmail: rad?.coordinationContactEmail ?? "",
     coordinationContactPhone: rad?.coordinationContactPhone ?? "",
+    integrationAcknowledged: rad?.integrationAcknowledged ?? false,
   };
 
   const s9: Section9Data = {
@@ -176,12 +252,34 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
     secondaryEscalationEmail: cn?.secondaryEscalationEmail ?? "",
   };
 
+  // --- Section 11: Sub-Services (only if Phase 2 unlocked) ---
+  let s11: Section11Data | undefined;
+  if (unlockedPhaseNumbers.includes(2)) {
+    const subServiceMap = new Map(
+      (program?.subServices ?? []).map((ss) => [`${ss.serviceType}:${ss.subType}`, ss.selected])
+    );
+    // Get selected service types from Section 3
+    const selectedServiceTypes = s3.services.filter((s) => s.selected).map((s) => s.serviceType);
+    const categories: Section11Data["categories"] = {};
+    for (const serviceType of selectedServiceTypes) {
+      const subItems = SUB_SERVICE_TYPES[serviceType];
+      if (!subItems) continue;
+      categories[serviceType] = subItems.map((item) => ({
+        subType: item.value,
+        selected: subServiceMap.get(`${serviceType}:${item.value}`) ?? false,
+      }));
+    }
+    s11 = { categories };
+  }
+
   // --- Compute completion statuses in-memory ---
-  const statuses = computeStatuses(affiliate, program, s3, s5, s6, lab, rad, cn);
+  const statuses = computeStatuses(affiliate, program, s3, s5, s6, lab, rad, cn, s11, unlockedPhaseNumbers);
 
   return {
-    sections: { 1: s1, 2: s2, 3: s3, 4: s4, 5: s5, 6: s6, 7: s7, 8: s8, 9: s9 },
+    sections: { 1: s1, 2: s2, 3: s3, 4: s4, 5: s5, 6: s6, 7: s7, 8: s8, 9: s9, 11: s11 },
     statuses,
+    formStatus: affiliate.status,
+    phases,
   };
 }
 
@@ -211,9 +309,11 @@ function computeStatuses(
   s3: Section3Data,
   s5: Section5Data,
   s6: Section6Data,
-  lab: { networkType: string | null; coordinationContactName: string | null } | null,
+  lab: { networkType: string | null; coordinationContactName: string | null; integrationAcknowledged: boolean } | null,
   rad: { networkName: string | null; coordinationContactName: string | null } | null,
   cn: { acknowledged: boolean; primaryEscalationName: string | null; secondaryEscalationName: string | null } | null,
+  s11: Section11Data | undefined,
+  unlockedPhases: number[],
 ): Record<number, CompletionStatus> {
   const statuses: Record<number, CompletionStatus> = {};
 
@@ -245,17 +345,17 @@ function computeStatuses(
   }
 
   // Section 5
-  const locations = s5.locations.filter((l) => l.id); // only persisted locations
+  const locations = s5.locations.filter((l) => l.id);
   const completeLocations = locations.filter((l) => l.locationName && l.streetAddress && l.city && l.state && l.zip && l.locationNpi && l.phoneNumber);
   statuses[5] = locations.length === 0 ? "not_started" : completeLocations.length === locations.length ? "complete" : "in_progress";
 
   // Section 6
-  const providers = s6.providers.filter((p) => p.id); // only persisted providers
+  const providers = s6.providers.filter((p) => p.id);
   const completeProv = providers.filter((p) => p.firstName && p.lastName && p.npi && p.licenseNumber);
   statuses[6] = providers.length === 0 ? "not_started" : completeProv.length === providers.length ? "complete" : "in_progress";
 
   // Section 7
-  statuses[7] = !lab ? "not_started" : lab.networkType && lab.coordinationContactName ? "complete" : "in_progress";
+  statuses[7] = !lab ? "not_started" : lab.networkType && lab.coordinationContactName && (lab.networkType !== "other" || lab.integrationAcknowledged) ? "complete" : "in_progress";
 
   // Section 8
   statuses[8] = !rad ? "not_started" : rad.networkName && rad.coordinationContactName ? "complete" : "in_progress";
@@ -265,6 +365,24 @@ function computeStatuses(
 
   // Section 10
   statuses[10] = affiliate.status === "SUBMITTED" ? "complete" : "not_started";
+
+  // Section 11: Sub-Service Configuration (only if Phase 2 unlocked)
+  if (unlockedPhases.includes(2) && s11) {
+    const cats = Object.entries(s11.categories);
+    if (cats.length === 0) {
+      statuses[11] = "not_started";
+    } else {
+      const allCategoriesHaveSelection = cats.every(([, items]) =>
+        items.some((item) => item.selected)
+      );
+      const anyHasSelection = cats.some(([, items]) =>
+        items.some((item) => item.selected)
+      );
+      statuses[11] = allCategoriesHaveSelection ? "complete" : anyHasSelection ? "in_progress" : "not_started";
+    }
+  }
+
+  // Section 12 (Phase 2 review — not tracked for completion)
 
   return statuses;
 }

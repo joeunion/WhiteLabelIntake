@@ -48,3 +48,4 @@ test-*.csv
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+inventory_export_prod_20260218_114130.csv

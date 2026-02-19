@@ -12,9 +12,11 @@ import type { Section3Data } from "@/lib/validations/section3";
 import { useCompletion } from "@/lib/contexts/CompletionContext";
 import { useAdminForm } from "@/lib/contexts/AdminFormContext";
 import { SectionNavButtons } from "../SectionNavButtons";
+import { useSyncSectionCache, useReportDirty } from "../OnboardingClient";
 
 export function Section3Form({ initialData, onNavigate, disabled }: { initialData: Section3Data; onNavigate?: (section: number) => void; disabled?: boolean }) {
   const [data, setData] = useState<Section3Data>(initialData);
+  useSyncSectionCache(3, data);
   const { updateStatuses } = useCompletion();
   const adminCtx = useAdminForm();
 
@@ -23,7 +25,8 @@ export function Section3Form({ initialData, onNavigate, disabled }: { initialDat
     return saveSection3(d);
   }, [adminCtx]);
 
-  const { save } = useSaveOnNext({ data, onSave, onAfterSave: updateStatuses });
+  const { save, isDirty } = useSaveOnNext({ data, onSave, onAfterSave: updateStatuses });
+  useReportDirty(3, isDirty);
 
   function toggleService(index: number) {
     setData((prev) => ({
@@ -54,13 +57,15 @@ export function Section3Form({ initialData, onNavigate, disabled }: { initialDat
         <div className="flex flex-col gap-3">
           {data.services.map((service, index) => {
             const meta = SERVICE_TYPES.find((st) => st.value === service.serviceType);
+            const isLocked = meta && "locked" in meta && meta.locked;
             return (
               <div key={service.serviceType}>
                 <Checkbox
                   label={meta?.label ?? service.serviceType}
                   name={`service-${service.serviceType}`}
-                  checked={service.selected}
-                  onChange={() => toggleService(index)}
+                  checked={isLocked ? true : service.selected}
+                  onChange={isLocked ? undefined : () => toggleService(index)}
+                  disabled={!!isLocked}
                 />
                 {service.serviceType === "other" && service.selected && (
                   <div className="ml-8 mt-2">
@@ -79,7 +84,7 @@ export function Section3Form({ initialData, onNavigate, disabled }: { initialDat
         </div>
 
         <p className="text-xs text-muted mt-4 italic">
-          If a service is not selected, Care Navigation will not reference or offer it as part of your program.
+          Selected services are covered under your program and utilization is reported back to you. Non-selected services are not covered — members needing these will be referred out and may use their traditional insurance or pay out of pocket.
         </p>
       </Card>
 

@@ -1,16 +1,17 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { getSessionContext } from "./helpers";
+import { getSessionContext, assertNotSubmitted, assertPhaseNotSubmitted } from "./helpers";
 import { getCompletionStatuses } from "./completion";
 import { getSectionMeta } from "@/types";
 
 export async function submitForm() {
   const ctx = await getSessionContext();
+  await assertNotSubmitted(ctx.affiliateId);
 
   // Server-side gate: all sections 1-9 must be complete
   const statuses = await getCompletionStatuses(ctx.affiliateId);
-  const incomplete = Array.from({ length: 9 }, (_, i) => i + 1)
+  const incomplete = [1, 2, 3, 4, 5, 6, 7, 9]
     .filter((id) => statuses[id] !== "complete");
 
   if (incomplete.length > 0) {
@@ -20,11 +21,43 @@ export async function submitForm() {
     throw new Error(`Cannot submit: incomplete sections — ${names}`);
   }
 
-  await prisma.affiliate.update({
-    where: { id: ctx.affiliateId },
-    data: {
-      status: "SUBMITTED",
-      submittedAt: new Date(),
-    },
-  });
+  await prisma.$transaction([
+    prisma.affiliate.update({
+      where: { id: ctx.affiliateId },
+      data: {
+        status: "SUBMITTED",
+        submittedAt: new Date(),
+      },
+    }),
+    prisma.affiliatePhase.upsert({
+      where: { affiliateId_phase: { affiliateId: ctx.affiliateId, phase: 1 } },
+      update: { status: "SUBMITTED", submittedAt: new Date() },
+      create: { affiliateId: ctx.affiliateId, phase: 1, status: "SUBMITTED", submittedAt: new Date(), unlockedAt: new Date() },
+    }),
+  ]);
+}
+
+export async function submitPhase(phaseNumber: number) {
+  const ctx = await getSessionContext();
+  await assertPhaseNotSubmitted(ctx.affiliateId, phaseNumber);
+
+  if (phaseNumber === 1) {
+    return submitForm();
+  }
+
+  if (phaseNumber === 2) {
+    // Phase 2: Section 11 must be complete
+    const statuses = await getCompletionStatuses(ctx.affiliateId);
+    if (statuses[11] !== "complete") {
+      throw new Error("Cannot submit Phase 2: Service Configuration (Section 11) is not complete.");
+    }
+
+    await prisma.affiliatePhase.update({
+      where: { affiliateId_phase: { affiliateId: ctx.affiliateId, phase: 2 } },
+      data: { status: "SUBMITTED", submittedAt: new Date() },
+    });
+    return;
+  }
+
+  throw new Error(`Unknown phase: ${phaseNumber}`);
 }
