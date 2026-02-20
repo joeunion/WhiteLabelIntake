@@ -8,18 +8,19 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Checkbox";
-import { useSaveOnNext } from "@/lib/hooks/useSaveOnNext";
-import { saveSection5, deleteLocation } from "@/lib/actions/section5";
-import { saveSection5ForAffiliate, deleteLocationForAffiliate } from "@/lib/actions/admin-sections";
-import type { Section5Data, LocationData, DaySchedule } from "@/lib/validations/section5";
+import { saveSellerLocations, deleteSellerLocation } from "@/lib/actions/seller-locations";
+import type { SellerLocationsData, SellerLocationData } from "@/lib/actions/seller-locations";
 import { defaultWeeklySchedule } from "@/lib/validations/section5";
-import { useCompletion } from "@/lib/contexts/CompletionContext";
-import { useAdminForm } from "@/lib/contexts/AdminFormContext";
-import { SectionNavButtons } from "../SectionNavButtons";
-import { useSyncSectionCache, useReportDirty } from "../OnboardingClient";
+import type { DaySchedule } from "@/lib/validations/section5";
+import { SERVICE_TYPES } from "@/lib/validations/section3";
+import { SUB_SERVICE_TYPES } from "@/lib/validations/section11";
+import { saveLocationServices } from "@/lib/actions/location-services";
+import type { LocationServiceState } from "@/lib/actions/location-services";
+import { SubServiceModal } from "@/components/ui/SubServiceModal";
 import { CSVUploadButton } from "@/components/ui/CSVUploadButton";
 import { LOCATION_CSV_COLUMNS, locationCSVRowSchema } from "@/lib/csv/locationColumns";
 import type { LocationCSVRow } from "@/lib/csv/locationColumns";
+import type { CompletionStatus, SellerSectionId } from "@/types";
 
 const US_STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
@@ -40,7 +41,7 @@ const SCHEDULING_OPTIONS = [
   { value: "other", label: "Other" },
 ];
 
-function emptyLocation(): LocationData {
+function emptyLocation(): SellerLocationData {
   return {
     locationName: "", streetAddress: "", streetAddress2: "", city: "", state: "", zip: "",
     closeByDescription: "", locationNpi: "", phoneNumber: "",
@@ -54,31 +55,23 @@ function emptyLocation(): LocationData {
   };
 }
 
-function essentialsFilled(loc: LocationData): boolean {
+function essentialsFilled(loc: SellerLocationData): boolean {
   return !!(loc.locationName && loc.streetAddress && loc.city && loc.state && loc.zip && loc.phoneNumber && loc.locationNpi);
 }
 
-function locationHasData(loc: LocationData): boolean {
+function locationHasData(loc: SellerLocationData): boolean {
   if (loc.id) return true;
   return !!(loc.locationName || loc.streetAddress || loc.city || loc.state || loc.zip || loc.phoneNumber || loc.locationNpi);
 }
 
-// Dynamic import to avoid `document is not defined` on server
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const AddressAutofill = dynamic(() => import("@mapbox/search-js-react").then((m) => m.AddressAutofill) as any, { ssr: false }) as React.ComponentType<{ accessToken: string; onRetrieve: (response: any) => void; options?: Record<string, unknown>; children: React.ReactNode }>;
-
-const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
-
-function locationComplete(loc: LocationData): boolean {
+function locationComplete(loc: SellerLocationData): boolean {
   if (!essentialsFilled(loc)) return false;
   if (!loc.accessType) return false;
-  const hasHours = (loc.weeklySchedule ?? []).some(
-    (d) => !d.closed && d.openTime && d.closeTime
-  );
+  const hasHours = (loc.weeklySchedule ?? []).some((d) => !d.closed && d.openTime && d.closeTime);
   return hasHours;
 }
 
-function formatAddress(loc: LocationData): string {
+function formatAddress(loc: SellerLocationData): string {
   const parts = [loc.streetAddress];
   if (loc.streetAddress2) parts.push(loc.streetAddress2);
   if (loc.city) parts.push(loc.city);
@@ -88,20 +81,27 @@ function formatAddress(loc: LocationData): string {
   return parts.filter(Boolean).join(" ");
 }
 
-export function Section5Form({ initialData, onNavigate, disabled }: {
-  initialData: Section5Data;
-  onNavigate?: (section: number) => void;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const AddressAutofill = dynamic(() => import("@mapbox/search-js-react").then((m) => m.AddressAutofill) as any, { ssr: false }) as React.ComponentType<{ accessToken: string; onRetrieve: (response: any) => void; options?: Record<string, unknown>; children: React.ReactNode }>;
+const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "";
+
+interface SellerLocationsFormProps {
+  initialData: SellerLocationsData;
+  sellerServiceOfferings: Array<{ serviceType: string; selected: boolean }>;
+  locationServices?: Record<string, LocationServiceState>;
+  onNavigate: (sectionId: string) => void;
+  onStatusUpdate: (statuses: Record<string, string>) => void;
   disabled?: boolean;
-}) {
+}
+
+export function SellerLocationsForm({ initialData, sellerServiceOfferings, locationServices: initialLocationServices, onNavigate, onStatusUpdate, disabled }: SellerLocationsFormProps) {
+  const [locServices, setLocServices] = useState<Record<string, LocationServiceState>>(initialLocationServices ?? {});
+  const [modalTarget, setModalTarget] = useState<{ locId: string; serviceType: string } | null>(null);
   const [openIndex, setOpenIndex] = useState<number>(0);
-  const [data, setData] = useState<Section5Data>(() => {
+  const [saving, setSaving] = useState(false);
+  const [data, setData] = useState<SellerLocationsData>(() => {
     if (initialData.locations.length === 0) {
-      return {
-        defaultSchedulingSystem: initialData.defaultSchedulingSystem ?? null,
-        defaultSchedulingOtherName: initialData.defaultSchedulingOtherName ?? null,
-        defaultSchedulingAcknowledged: initialData.defaultSchedulingAcknowledged ?? false,
-        locations: [emptyLocation()],
-      };
+      return { ...initialData, locations: [emptyLocation()] };
     }
     return {
       ...initialData,
@@ -111,36 +111,34 @@ export function Section5Form({ initialData, onNavigate, disabled }: {
       })),
     };
   });
-  useSyncSectionCache(5, data);
 
-  const { updateStatuses } = useCompletion();
-  const adminCtx = useAdminForm();
+  const handleSave = useCallback(async () => {
+    setSaving(true);
+    try {
+      const result = await saveSellerLocations(data);
+      // Assign server-generated IDs back
+      setData((prev) => {
+        const updated = prev.locations.map((l, i) =>
+          l.id !== result.locationIds[i] ? { ...l, id: result.locationIds[i] } : l
+        );
+        return updated.some((l, i) => l !== prev.locations[i])
+          ? { ...prev, locations: updated }
+          : prev;
+      });
+      onStatusUpdate(result.statuses);
+      toast.success("Locations saved");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to save locations");
+    } finally {
+      setSaving(false);
+    }
+  }, [data, onStatusUpdate]);
 
-  const onSave = useCallback(async (d: Section5Data) => {
-    const result = adminCtx?.isAdminEditing
-      ? await saveSection5ForAffiliate(adminCtx.affiliateId, d)
-      : await saveSection5(d);
-    // Assign server-generated IDs back into state immutably (no direct mutation)
-    setData((prev) => {
-      const updated = prev.locations.map((l, i) =>
-        l.id !== result.locationIds[i] ? { ...l, id: result.locationIds[i] } : l
-      );
-      return updated.some((l, i) => l !== prev.locations[i])
-        ? { ...prev, locations: updated }
-        : prev;
-    });
-    return result.statuses;
-  }, [adminCtx]);
-
-  const { save, isDirty } = useSaveOnNext({ data, onSave, onAfterSave: updateStatuses });
-  useReportDirty(5, isDirty);
-
-  function updateLocation(index: number, field: keyof LocationData, value: unknown) {
+  function updateLocation(index: number, field: keyof SellerLocationData, value: unknown) {
     setData((prev) => ({
       ...prev,
-      locations: prev.locations.map((loc, i) =>
-        i === index ? { ...loc, [field]: value } : loc
-      ),
+      locations: prev.locations.map((loc, i) => i === index ? { ...loc, [field]: value } : loc),
     }));
   }
 
@@ -155,6 +153,12 @@ export function Section5Form({ initialData, onNavigate, disabled }: {
       const state = (p.region_code || "").toUpperCase();
       if (state) updateLocation(locIndex, "state", state);
       if (p.postcode) updateLocation(locIndex, "zip", p.postcode);
+      // Capture coordinates for map view
+      const coords = feature.geometry?.coordinates;
+      if (coords && coords.length >= 2) {
+        updateLocation(locIndex, "longitude", coords[0]);
+        updateLocation(locIndex, "latitude", coords[1]);
+      }
     };
   }
 
@@ -163,12 +167,7 @@ export function Section5Form({ initialData, onNavigate, disabled }: {
       ...prev,
       locations: prev.locations.map((loc, li) =>
         li === locIndex
-          ? {
-              ...loc,
-              weeklySchedule: (loc.weeklySchedule ?? defaultWeeklySchedule()).map((ds, di) =>
-                di === dayIndex ? { ...ds, [field]: value } : ds
-              ),
-            }
+          ? { ...loc, weeklySchedule: (loc.weeklySchedule ?? defaultWeeklySchedule()).map((ds, di) => di === dayIndex ? { ...ds, [field]: value } : ds) }
           : loc
       ),
     }));
@@ -189,26 +188,17 @@ export function Section5Form({ initialData, onNavigate, disabled }: {
       const name = loc.locationName || `Location ${index + 1}`;
       if (!confirm(`Remove "${name}"? This location has data that will be lost.`)) return;
     }
-    // Adjust openIndex before removing
     setOpenIndex((prev) => {
       if (index === prev) return Math.min(prev, data.locations.length - 2);
       if (index < prev) return prev - 1;
       return prev;
     });
-    // Use identity (id or reference) instead of index to avoid stale-index
-    // issues when rapidly removing multiple entries.
     setData((prev) => ({
       ...prev,
-      locations: prev.locations.filter((l) =>
-        locId ? l.id !== locId : l !== loc
-      ),
+      locations: prev.locations.filter((l) => locId ? l.id !== locId : l !== loc),
     }));
-    // Background: delete from DB if persisted
     if (locId) {
-      const deleteFn = adminCtx?.isAdminEditing
-        ? () => deleteLocationForAffiliate(adminCtx.affiliateId, locId)
-        : () => deleteLocation(locId);
-      deleteFn().catch((err) => {
+      deleteSellerLocation(locId).catch((err) => {
         console.error("Failed to delete location:", err);
         toast.error("Failed to remove location. It may reappear on refresh.");
       });
@@ -220,12 +210,7 @@ export function Section5Form({ initialData, onNavigate, disabled }: {
       ...prev,
       locations: prev.locations.map((loc, li) =>
         li === locIndex
-          ? {
-              ...loc,
-              schedulingIntegrations: (loc.schedulingIntegrations ?? []).map((si, si2) =>
-                si2 === siIndex ? { ...si, [field]: value } : si
-              ),
-            }
+          ? { ...loc, schedulingIntegrations: (loc.schedulingIntegrations ?? []).map((si, si2) => si2 === siIndex ? { ...si, [field]: value } : si) }
           : loc
       ),
     }));
@@ -236,13 +221,18 @@ export function Section5Form({ initialData, onNavigate, disabled }: {
       ...prev,
       locations: prev.locations.map((loc, li) =>
         li === locIndex
-          ? {
-              ...loc,
-              schedulingIntegrations: [
-                ...(loc.schedulingIntegrations ?? []),
-                { serviceType: "office_365" as const, serviceName: "", accountIdentifier: "" },
-              ],
-            }
+          ? { ...loc, schedulingIntegrations: [...(loc.schedulingIntegrations ?? []), { serviceType: "office_365" as const, serviceName: "", accountIdentifier: "" }] }
+          : loc
+      ),
+    }));
+  }
+
+  function removeScheduling(locIndex: number, siIndex: number) {
+    setData((prev) => ({
+      ...prev,
+      locations: prev.locations.map((loc, li) =>
+        li === locIndex
+          ? { ...loc, schedulingIntegrations: (loc.schedulingIntegrations ?? []).filter((_, i) => i !== siIndex) }
           : loc
       ),
     }));
@@ -252,46 +242,171 @@ export function Section5Form({ initialData, onNavigate, disabled }: {
     const newLocations = rows.map((row) => ({
       ...emptyLocation(),
       ...row,
-    } as LocationData));
-    // Compute updated data outside the state setter so we can save
-    // without side effects inside React's state updater (strict-mode safe).
-    let updated: Section5Data;
-    setData((prev) => {
-      updated = { ...prev, locations: [...prev.locations, ...newLocations] };
-      return updated;
-    });
-    // Save outside the setter — fires once even in React strict mode
-    onSave(updated!).then(updateStatuses).catch(() => {
-      toast.error("Some imported locations could not be saved.");
-    });
-  }
-
-  function removeScheduling(locIndex: number, siIndex: number) {
+    } as SellerLocationData));
     setData((prev) => ({
       ...prev,
-      locations: prev.locations.map((loc, li) =>
-        li === locIndex
-          ? {
-              ...loc,
-              schedulingIntegrations: (loc.schedulingIntegrations ?? []).filter((_, i) => i !== siIndex),
-            }
-          : loc
-      ),
+      locations: [...prev.locations, ...newLocations],
     }));
+    toast.success(`Imported ${rows.length} location${rows.length === 1 ? "" : "s"}`);
   }
 
+  // ─── Location services helpers ─────────────────────────────────
+
+  const orgSelectedServices = (sellerServiceOfferings ?? []).filter((s) => s.selected);
+
+  function getLocServiceOverride(locId: string, serviceType: string): boolean | null {
+    const state = locServices[locId];
+    if (!state) return null;
+    const override = state.overrides.find((o) => o.serviceType === serviceType);
+    return override ? override.available : null;
+  }
+
+  function toggleLocServiceOverride(locId: string, serviceType: string, currentlyAvailable: boolean) {
+    setLocServices((prev) => {
+      const state = prev[locId] ?? { overrides: [], subServices: [] };
+      const existing = state.overrides.find((o) => o.serviceType === serviceType);
+      const newOverrides = existing
+        ? state.overrides.map((o) => o.serviceType === serviceType ? { ...o, available: !currentlyAvailable } : o)
+        : [...state.overrides, { serviceType, available: !currentlyAvailable }];
+      return { ...prev, [locId]: { ...state, overrides: newOverrides } };
+    });
+    const state = locServices[locId] ?? { overrides: [], subServices: [] };
+    const existing = state.overrides.find((o) => o.serviceType === serviceType);
+    const newOverrides = existing
+      ? state.overrides.map((o) => o.serviceType === serviceType ? { ...o, available: !currentlyAvailable } : o)
+      : [...state.overrides, { serviceType, available: !currentlyAvailable }];
+    saveLocationServices({ locationId: locId, overrides: newOverrides, subServices: state.subServices }).catch(() => {});
+  }
+
+  function getSubServiceAvailable(locId: string, serviceType: string, subType: string): boolean {
+    const state = locServices[locId];
+    if (!state) return true;
+    const sub = state.subServices.find((s) => s.serviceType === serviceType && s.subType === subType);
+    return sub ? sub.available : true;
+  }
+
+  function toggleSubService(locId: string, serviceType: string, subType: string) {
+    setLocServices((prev) => {
+      const state = prev[locId] ?? { overrides: [], subServices: [] };
+      const existing = state.subServices.find((s) => s.serviceType === serviceType && s.subType === subType);
+      const newSubs = existing
+        ? state.subServices.map((s) => s.serviceType === serviceType && s.subType === subType ? { ...s, available: !s.available } : s)
+        : [...state.subServices, { serviceType, subType, available: false }];
+      return { ...prev, [locId]: { ...state, subServices: newSubs } };
+    });
+    const state = locServices[locId] ?? { overrides: [], subServices: [] };
+    const existing = state.subServices.find((s) => s.serviceType === serviceType && s.subType === subType);
+    const newSubs = existing
+      ? state.subServices.map((s) => s.serviceType === serviceType && s.subType === subType ? { ...s, available: !s.available } : s)
+      : [...state.subServices, { serviceType, subType, available: false }];
+    saveLocationServices({ locationId: locId, overrides: state.overrides, subServices: newSubs }).catch(() => {});
+  }
+
+  function selectAllSubServices(locId: string, serviceType: string) {
+    const subItems = SUB_SERVICE_TYPES[serviceType] ?? [];
+    setLocServices((prev) => {
+      const state = prev[locId] ?? { overrides: [], subServices: [] };
+      const otherSubs = state.subServices.filter((s) => s.serviceType !== serviceType);
+      const newSubs = [...otherSubs, ...subItems.map((sub) => ({ serviceType, subType: sub.value, available: true }))];
+      return { ...prev, [locId]: { ...state, subServices: newSubs } };
+    });
+    const state = locServices[locId] ?? { overrides: [], subServices: [] };
+    const otherSubs = state.subServices.filter((s) => s.serviceType !== serviceType);
+    const newSubs = [...otherSubs, ...subItems.map((sub) => ({ serviceType, subType: sub.value, available: true }))];
+    saveLocationServices({ locationId: locId, overrides: state.overrides, subServices: newSubs }).catch(() => {});
+  }
+
+  function deselectAllSubServices(locId: string, serviceType: string) {
+    const subItems = SUB_SERVICE_TYPES[serviceType] ?? [];
+    setLocServices((prev) => {
+      const state = prev[locId] ?? { overrides: [], subServices: [] };
+      const otherSubs = state.subServices.filter((s) => s.serviceType !== serviceType);
+      const newSubs = [...otherSubs, ...subItems.map((sub) => ({ serviceType, subType: sub.value, available: false }))];
+      return { ...prev, [locId]: { ...state, subServices: newSubs } };
+    });
+    const state = locServices[locId] ?? { overrides: [], subServices: [] };
+    const otherSubs = state.subServices.filter((s) => s.serviceType !== serviceType);
+    const newSubs = [...otherSubs, ...subItems.map((sub) => ({ serviceType, subType: sub.value, available: false }))];
+    saveLocationServices({ locationId: locId, overrides: state.overrides, subServices: newSubs }).catch(() => {});
+  }
+
+  function renderLocationServices(loc: SellerLocationData) {
+    if (!loc.id || orgSelectedServices.length === 0) return null;
+    const locId = loc.id;
+
+    return (
+      <div className="border-t border-border pt-4">
+        <h4 className="text-sm font-semibold text-foreground mb-1">Services at this Location</h4>
+        <p className="text-xs text-muted mb-3">
+          Inherited from your org defaults. Toggle off services not available at this location.
+        </p>
+        <div className="flex flex-col gap-2">
+          {orgSelectedServices.map((svc) => {
+            const meta = SERVICE_TYPES.find((st) => st.value === svc.serviceType);
+            const override = getLocServiceOverride(locId, svc.serviceType);
+            const isAvailable = override !== null ? override : true;
+            const subItems = SUB_SERVICE_TYPES[svc.serviceType];
+            const hasSubItems = subItems && subItems.length > 0;
+            let subAvailableCount = 0;
+            let subTotalCount = 0;
+            if (hasSubItems) {
+              subTotalCount = subItems.length;
+              subAvailableCount = subItems.filter((sub) => getSubServiceAvailable(locId, svc.serviceType, sub.value)).length;
+            }
+
+            return (
+              <div key={svc.serviceType}>
+                <div className="flex items-center justify-between">
+                  <Checkbox
+                    label={meta?.label ?? svc.serviceType}
+                    name={`loc-svc-${locId}-${svc.serviceType}`}
+                    checked={isAvailable}
+                    onChange={() => toggleLocServiceOverride(locId, svc.serviceType, isAvailable)}
+                  />
+                  {hasSubItems && isAvailable && (
+                    <button type="button" onClick={() => setModalTarget({ locId, serviceType: svc.serviceType })} className="text-xs text-brand-teal hover:underline ml-2">Configure</button>
+                  )}
+                </div>
+                {hasSubItems && isAvailable && subAvailableCount < subTotalCount && (
+                  <p className="ml-6 mt-0.5 text-xs text-muted">{subAvailableCount} of {subTotalCount} sub-services selected</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {modalTarget?.locId === locId && (() => {
+          const st = modalTarget.serviceType;
+          const defs = SUB_SERVICE_TYPES[st] ?? [];
+          const label = SERVICE_TYPES.find((s) => s.value === st)?.label ?? st;
+          const stateMap: Record<string, boolean> = {};
+          for (const def of defs) stateMap[def.value] = getSubServiceAvailable(locId, st, def.value);
+          return (
+            <SubServiceModal
+              open
+              onClose={() => setModalTarget(null)}
+              serviceType={st}
+              serviceLabel={label}
+              subServiceDefs={defs}
+              subServiceState={stateMap}
+              onToggle={(subType) => toggleSubService(locId, st, subType)}
+              onSelectAll={() => selectAllSubServices(locId, st)}
+              onDeselectAll={() => deselectAllSubServices(locId, st)}
+            />
+          );
+        })()}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6">
       <p className="text-xs text-muted">
-        This information allows our teams to schedule appointments accurately and guide members to the correct physical site.
+        Register the physical locations where your organization delivers care. These locations will be available to plan buyers in the marketplace.
       </p>
 
       <Card>
         <h3 className="text-lg font-heading font-semibold mb-1">Default Scheduling System</h3>
-        <p className="text-xs text-muted mb-5">
-          This applies to all locations unless overridden per-location below.
-        </p>
+        <p className="text-xs text-muted mb-5">This applies to all locations unless overridden per-location below.</p>
         <Select
           label="Scheduling System"
           name="defaultSchedulingSystem"
@@ -306,18 +421,8 @@ export function Section5Form({ initialData, onNavigate, disabled }: {
         />
         {data.defaultSchedulingSystem === "other" && (
           <div className="mt-4 space-y-3">
-            <Input
-              label="Scheduling System Name"
-              required
-              value={data.defaultSchedulingOtherName ?? ""}
-              onChange={(e) => setData((prev) => ({ ...prev, defaultSchedulingOtherName: e.target.value }))}
-              placeholder="e.g., eClinicalWorks, Athenahealth"
-            />
-            <Checkbox
-              label="I understand that integrating with a non-standard scheduling system requires a scoped project. Our team will follow up to assess feasibility and timeline."
-              checked={data.defaultSchedulingAcknowledged ?? false}
-              onChange={(e) => setData((prev) => ({ ...prev, defaultSchedulingAcknowledged: e.target.checked }))}
-            />
+            <Input label="Scheduling System Name" required value={data.defaultSchedulingOtherName ?? ""} onChange={(e) => setData((prev) => ({ ...prev, defaultSchedulingOtherName: e.target.value }))} placeholder="e.g., eClinicalWorks, Athenahealth" />
+            <Checkbox label="I understand that integrating with a non-standard scheduling system requires a scoped project." checked={data.defaultSchedulingAcknowledged ?? false} onChange={(e) => setData((prev) => ({ ...prev, defaultSchedulingAcknowledged: e.target.checked }))} />
           </div>
         )}
       </Card>
@@ -326,19 +431,12 @@ export function Section5Form({ initialData, onNavigate, disabled }: {
         const isOpen = locIndex === openIndex;
         const isComplete = locationComplete(loc);
 
-        /* ── Collapsed summary ── */
         if (!isOpen) {
           return (
             <Card key={locIndex}>
-              <button
-                type="button"
-                className="w-full text-left"
-                onClick={() => setOpenIndex(locIndex)}
-              >
+              <button type="button" className="w-full text-left" onClick={() => setOpenIndex(locIndex)}>
                 <div className="flex justify-between items-center">
-                  <h3 className="text-lg font-heading font-semibold truncate">
-                    {loc.locationName || `Location ${locIndex + 1}`}
-                  </h3>
+                  <h3 className="text-lg font-heading font-semibold truncate">{loc.locationName || `Location ${locIndex + 1}`}</h3>
                   <div className="flex items-center gap-3 flex-shrink-0">
                     {isComplete ? (
                       <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700">
@@ -354,31 +452,18 @@ export function Section5Form({ initialData, onNavigate, disabled }: {
                     <svg className="w-4 h-4 text-muted" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" /></svg>
                   </div>
                 </div>
-                {(loc.streetAddress || loc.city) && (
-                  <p className="text-xs text-muted mt-1 truncate">{formatAddress(loc)}</p>
-                )}
-                {(loc.locationNpi || loc.phoneNumber) && (
-                  <p className="text-xs text-muted mt-0.5">
-                    {[loc.locationNpi && `NPI: ${loc.locationNpi}`, loc.phoneNumber].filter(Boolean).join(" · ")}
-                  </p>
-                )}
+                {(loc.streetAddress || loc.city) && <p className="text-xs text-muted mt-1 truncate">{formatAddress(loc)}</p>}
+                {(loc.locationNpi || loc.phoneNumber) && <p className="text-xs text-muted mt-0.5">{[loc.locationNpi && `NPI: ${loc.locationNpi}`, loc.phoneNumber].filter(Boolean).join(" · ")}</p>}
               </button>
               {data.locations.length > 1 && (
                 <div className="mt-2 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); removeLocation(locIndex); }}
-                    className="text-xs text-error hover:underline"
-                  >
-                    Remove
-                  </button>
+                  <button type="button" onClick={(e) => { e.stopPropagation(); removeLocation(locIndex); }} className="text-xs text-error hover:underline">Remove</button>
                 </div>
               )}
             </Card>
           );
         }
 
-        /* ── Expanded card ── */
         const showAdvanced = essentialsFilled(loc);
 
         return (
@@ -405,9 +490,7 @@ export function Section5Form({ initialData, onNavigate, disabled }: {
                     Collapse
                   </button>
                 )}
-                {data.locations.length > 1 && (
-                  <button type="button" onClick={() => removeLocation(locIndex)} className="text-xs text-error hover:underline">Remove</button>
-                )}
+                {data.locations.length > 1 && <button type="button" onClick={() => removeLocation(locIndex)} className="text-xs text-error hover:underline">Remove</button>}
               </div>
             </div>
 
@@ -433,9 +516,7 @@ export function Section5Form({ initialData, onNavigate, disabled }: {
             </div>
 
             {!showAdvanced && (
-              <p className="text-xs text-muted mt-4 italic">
-                Fill in the required fields above to reveal additional options (services, scheduling, hours).
-              </p>
+              <p className="text-xs text-muted mt-4 italic">Fill in the required fields above to reveal additional options.</p>
             )}
 
             {showAdvanced && (
@@ -443,14 +524,7 @@ export function Section5Form({ initialData, onNavigate, disabled }: {
                 <Input label="Close-by Description" value={loc.closeByDescription ?? ""} onChange={(e) => updateLocation(locIndex, "closeByDescription", e.target.value)} placeholder={`e.g., "Across from Denny's"`} helperText="Used by Care Nav when giving directions" />
                 <Select label="Walk-in or Appointment" required value={loc.accessType ?? ""} onChange={(e) => updateLocation(locIndex, "accessType", e.target.value)} options={ACCESS_OPTIONS} placeholder="Select" />
 
-                <div className="border-t border-border pt-4">
-                  <h4 className="text-sm font-semibold text-foreground mb-3">On-site Services</h4>
-                  <div className="flex flex-col gap-2">
-                    <Checkbox label="Labs" checked={loc.hasOnSiteLabs ?? false} onChange={(e) => updateLocation(locIndex, "hasOnSiteLabs", e.target.checked)} />
-                    <Checkbox label="Radiology" checked={loc.hasOnSiteRadiology ?? false} onChange={(e) => updateLocation(locIndex, "hasOnSiteRadiology", e.target.checked)} />
-                    <Checkbox label="Pharmacy" checked={loc.hasOnSitePharmacy ?? false} onChange={(e) => updateLocation(locIndex, "hasOnSitePharmacy", e.target.checked)} />
-                  </div>
-                </div>
+                {renderLocationServices(loc)}
 
                 <div className="border-t border-border pt-4">
                   <h4 className="text-sm font-semibold text-foreground mb-1">Scheduling</h4>
@@ -469,9 +543,7 @@ export function Section5Form({ initialData, onNavigate, disabled }: {
                         setData((prev) => ({
                           ...prev,
                           locations: prev.locations.map((l, i) =>
-                            i === locIndex
-                              ? { ...l, schedulingSystemOverride: null, schedulingOverrideOtherName: null, schedulingOverrideAcknowledged: false }
-                              : l
+                            i === locIndex ? { ...l, schedulingSystemOverride: null, schedulingOverrideOtherName: null, schedulingOverrideAcknowledged: false } : l
                           ),
                         }));
                       }
@@ -479,41 +551,19 @@ export function Section5Form({ initialData, onNavigate, disabled }: {
                   />
                   {loc.schedulingSystemOverride != null && (
                     <div className="mt-3 space-y-3">
-                      <Select
-                        label="Location Scheduling System"
-                        value={loc.schedulingSystemOverride ?? ""}
-                        onChange={(e) => {
-                          const val = e.target.value || null;
-                          setData((prev) => ({
-                            ...prev,
-                            locations: prev.locations.map((l, i) =>
-                              i === locIndex
-                                ? {
-                                    ...l,
-                                    schedulingSystemOverride: val,
-                                    ...(val !== "other" ? { schedulingOverrideOtherName: null, schedulingOverrideAcknowledged: false } : {}),
-                                  }
-                                : l
-                            ),
-                          }));
-                        }}
-                        options={SCHEDULING_OPTIONS}
-                        placeholder="Select system"
-                      />
+                      <Select label="Location Scheduling System" value={loc.schedulingSystemOverride ?? ""} onChange={(e) => {
+                        const val = e.target.value || null;
+                        setData((prev) => ({
+                          ...prev,
+                          locations: prev.locations.map((l, i) =>
+                            i === locIndex ? { ...l, schedulingSystemOverride: val, ...(val !== "other" ? { schedulingOverrideOtherName: null, schedulingOverrideAcknowledged: false } : {}) } : l
+                          ),
+                        }));
+                      }} options={SCHEDULING_OPTIONS} placeholder="Select system" />
                       {loc.schedulingSystemOverride === "other" && (
                         <>
-                          <Input
-                            label="Scheduling System Name"
-                            required
-                            value={loc.schedulingOverrideOtherName ?? ""}
-                            onChange={(e) => updateLocation(locIndex, "schedulingOverrideOtherName", e.target.value)}
-                            placeholder="e.g., eClinicalWorks, Athenahealth"
-                          />
-                          <Checkbox
-                            label="I understand that integrating with a non-standard scheduling system requires a scoped project. Our team will follow up to assess feasibility and timeline."
-                            checked={loc.schedulingOverrideAcknowledged ?? false}
-                            onChange={(e) => updateLocation(locIndex, "schedulingOverrideAcknowledged", e.target.checked)}
-                          />
+                          <Input label="Scheduling System Name" required value={loc.schedulingOverrideOtherName ?? ""} onChange={(e) => updateLocation(locIndex, "schedulingOverrideOtherName", e.target.value)} placeholder="e.g., eClinicalWorks" />
+                          <Checkbox label="I understand that integrating with a non-standard scheduling system requires a scoped project." checked={loc.schedulingOverrideAcknowledged ?? false} onChange={(e) => updateLocation(locIndex, "schedulingOverrideAcknowledged", e.target.checked)} />
                         </>
                       )}
                     </div>
@@ -533,15 +583,13 @@ export function Section5Form({ initialData, onNavigate, disabled }: {
                         {si.serviceType === "other" && (
                           <>
                             <Input label="Service Name" required value={si.serviceName ?? ""} onChange={(e) => updateScheduling(locIndex, siIndex, "serviceName", e.target.value)} />
-                            <p className="text-xs text-warm-orange italic">Integrating with a non-standard scheduling service requires a scoped project. Our team will follow up to assess feasibility and timeline.</p>
+                            <p className="text-xs text-warm-orange italic">Integrating with a non-standard scheduling service requires a scoped project.</p>
                           </>
                         )}
                         <Input label="Account or Calendar Identifier" required value={si.accountIdentifier ?? ""} onChange={(e) => updateScheduling(locIndex, siIndex, "accountIdentifier", e.target.value)} placeholder="Calendar URL, account email, or identifier" />
                       </div>
                     ))}
-                    <button type="button" onClick={() => addScheduling(locIndex)} className="text-sm text-brand-teal hover:underline">
-                      + Add scheduling integration
-                    </button>
+                    <button type="button" onClick={() => addScheduling(locIndex)} className="text-sm text-brand-teal hover:underline">+ Add scheduling integration</button>
                   </div>
                 </div>
 
@@ -570,9 +618,7 @@ export function Section5Form({ initialData, onNavigate, disabled }: {
       })}
 
       <div className="flex items-center gap-3">
-        <Button variant="secondary" type="button" onClick={addLocation}>
-          + Add Location
-        </Button>
+        <Button variant="secondary" type="button" onClick={addLocation}>+ Add Location</Button>
         <CSVUploadButton
           entityLabel="Locations"
           columns={LOCATION_CSV_COLUMNS}
@@ -584,7 +630,14 @@ export function Section5Form({ initialData, onNavigate, disabled }: {
         />
       </div>
 
-      <SectionNavButtons currentSection={5} onNavigate={onNavigate} onSave={save} />
+      <div className="flex justify-between pt-4">
+        <Button variant="secondary" type="button" onClick={() => onNavigate("S-4")}>
+          &larr; Previous
+        </Button>
+        <Button type="button" onClick={async () => { await handleSave(); onNavigate("S-3"); }} disabled={disabled || saving}>
+          {saving ? "Saving..." : "Save & Next →"}
+        </Button>
+      </div>
     </div>
   );
 }

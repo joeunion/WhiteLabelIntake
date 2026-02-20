@@ -73,3 +73,8 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: 0 0 0 3px rgba(6, 104, 128, 0.15);
   border-color: var(--color-focus);
 }
+
+/* Hide Mapbox logo watermark */
+.mapboxgl-ctrl-logo {
+  display: none !important;
+}

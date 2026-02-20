@@ -1,47 +1,56 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef, createContext, useContext, type Dispatch, type SetStateAction } from "react";
+import { useState, useCallback, useEffect, useRef, createContext, useContext } from "react";
 import { SectionNav } from "./SectionNav";
+import { SellerSectionNav } from "./SellerSectionNav";
 import { PrerequisiteBanner } from "./PrerequisiteBanner";
 import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
-import { getSectionMeta, getVisibleSections } from "@/types";
-import type { SectionId, CompletionStatus } from "@/types";
+import { getSectionMeta, getVisibleSections, getSellerSectionMeta, SELLER_SECTIONS } from "@/types";
+import type { SectionId, CompletionStatus, FlowType, SellerSectionId } from "@/types";
 import { CompletionProvider, useCompletion } from "@/lib/contexts/CompletionContext";
 import { Section1Form } from "./sections/Section1Form";
 import { Section2Form } from "./sections/Section2Form";
 import { Section3Form } from "./sections/Section3Form";
 import { Section4Form } from "./sections/Section4Form";
-import { Section5Form } from "./sections/Section5Form";
-import { Section6Form } from "./sections/Section6Form";
-import { Section7Form } from "./sections/Section7Form";
-import { Section8Form } from "./sections/Section8Form";
 import { Section9Form } from "./sections/Section9Form";
 import { ReviewForm } from "./sections/ReviewForm";
 import { Section11Form } from "./sections/Section11Form";
 import { Section12Form } from "./sections/Section12Form";
+import { NetworkBuilderForm } from "./sections/NetworkBuilderForm";
+import { SellerOrgInfoForm } from "./sections/SellerOrgInfoForm";
+import { SellerServicesForm } from "./sections/SellerServicesForm";
+import { SellerLabForm } from "./sections/SellerLabForm";
+import { SellerBillingForm } from "./sections/SellerBillingForm";
+import { SellerReviewForm } from "./sections/SellerReviewForm";
+import { SellerLocationsForm } from "./sections/SellerLocationsForm";
+import { SellerProvidersForm } from "./sections/SellerProvidersForm";
 
 import type { Section1Data } from "@/lib/validations/section1";
 import type { Section2Data } from "@/lib/validations/section2";
 import type { Section3Data } from "@/lib/validations/section3";
 import type { Section4Data } from "@/lib/validations/section4";
-import type { Section5Data } from "@/lib/validations/section5";
-import type { Section6Data } from "@/lib/validations/section6";
-import type { Section7Data } from "@/lib/validations/section7";
-import type { Section8Data } from "@/lib/validations/section8";
 import type { Section9Data } from "@/lib/validations/section9";
 import type { Section11Data } from "@/lib/validations/section11";
+import type { SellerOrgData } from "@/lib/validations/seller-org";
+import type { SellerServicesData } from "@/lib/validations/seller-services";
+import type { SellerLabData } from "@/lib/validations/seller-lab";
+import type { SellerBillingData } from "@/lib/validations/seller-billing";
+import type { LocationServiceState } from "@/lib/actions/location-services";
+import type { SellerLocationsData, SellerLocationData } from "@/lib/actions/seller-locations";
+import type { SellerProvidersData, SellerProviderData } from "@/lib/actions/seller-providers";
 
 export interface AllSectionData {
   1: Section1Data;
   2: Section2Data;
   3: Section3Data;
   4: Section4Data;
-  5: Section5Data;
-  6: Section6Data;
-  7: Section7Data;
-  8: Section8Data;
   9: Section9Data;
   11?: Section11Data;
+}
+
+export interface RoleFlags {
+  isAffiliate: boolean;
+  isSeller: boolean;
 }
 
 interface PhaseInfo {
@@ -91,15 +100,32 @@ export function useSyncSectionCache(section: number, data: unknown) {
   useEffect(() => () => update(section, ref.current), [section, update]);
 }
 
+export interface SellerFlowData {
+  orgInfo: SellerOrgData;
+  services: SellerServicesData;
+  lab: SellerLabData;
+  billing: SellerBillingData;
+  locationServices: Record<string, LocationServiceState>;
+  locations: SellerLocationData[];
+  providers: SellerProviderData[];
+  defaultSchedulingSystem: string | null;
+  defaultSchedulingOtherName: string | null;
+  defaultSchedulingAcknowledged: boolean;
+  statuses: Record<SellerSectionId, CompletionStatus>;
+  flowStatus: string;
+}
+
 interface OnboardingClientProps {
   sectionData: AllSectionData;
   initialStatuses: Record<number, CompletionStatus>;
   affiliateId?: string;
   formStatus?: string;
   phases?: PhaseInfo[];
+  roles?: RoleFlags;
+  sellerData?: SellerFlowData;
 }
 
-export function OnboardingClient({ sectionData, initialStatuses, affiliateId, formStatus, phases }: OnboardingClientProps) {
+export function OnboardingClient({ sectionData, initialStatuses, affiliateId, formStatus, phases, roles, sellerData }: OnboardingClientProps) {
   return (
     <CompletionProvider
       initialStatuses={initialStatuses}
@@ -107,17 +133,47 @@ export function OnboardingClient({ sectionData, initialStatuses, affiliateId, fo
       initialFormStatus={formStatus ?? "DRAFT"}
       initialPhases={phases}
     >
-      <OnboardingClientInner sectionData={sectionData} />
+      <OnboardingClientInner
+        sectionData={sectionData}
+        roles={roles ?? { isAffiliate: true, isSeller: false }}
+        sellerData={sellerData}
+      />
     </CompletionProvider>
   );
 }
 
-function OnboardingClientInner({ sectionData }: { sectionData: AllSectionData }) {
+function OnboardingClientInner({
+  sectionData,
+  roles,
+  sellerData,
+}: {
+  sectionData: AllSectionData;
+  roles: RoleFlags;
+  sellerData?: SellerFlowData;
+}) {
+  const isDualRole = roles.isAffiliate && roles.isSeller;
+  const defaultFlow: FlowType = roles.isAffiliate ? "AFFILIATE" : "SELLER";
+
+  const [activeFlow, setActiveFlow] = useState<FlowType>(defaultFlow);
   const [activeSection, setActiveSection] = useState(1);
+  const [activeSellerSection, setActiveSellerSection] = useState<SellerSectionId>("S-1");
   const [cache, setCache] = useState<AllSectionData>(sectionData);
   const [isSaving, setIsSaving] = useState(false);
   const [dirtySections, setDirtySections] = useState<Record<number, boolean>>({});
-  const { statuses, refreshStatuses, isLocked, unmetFor, unlockedPhases, phaseStatuses } = useCompletion();
+  const [sellerStatuses, setSellerStatuses] = useState<Record<SellerSectionId, CompletionStatus>>(
+    sellerData?.statuses ?? { "S-1": "not_started", "S-2": "not_started", "S-3": "not_started", "S-4": "not_started", "S-5": "not_started", "S-6": "not_started", "S-R": "not_started" }
+  );
+  const [sellerServices, setSellerServices] = useState<SellerServicesData>(
+    sellerData?.services ?? { services: [] }
+  );
+  const [sellerFlowStatus, setSellerFlowStatus] = useState(
+    sellerData?.flowStatus ?? "DRAFT"
+  );
+
+  const handleSellerStatusUpdate = useCallback((newStatuses: Record<string, string>) => {
+    setSellerStatuses(newStatuses as Record<SellerSectionId, CompletionStatus>);
+  }, []);
+  const { statuses, isLocked, unmetFor, unlockedPhases, phaseStatuses } = useCompletion();
 
   const reportDirty = useCallback((section: number, dirty: boolean) => {
     setDirtySections(prev => {
@@ -135,12 +191,24 @@ function OnboardingClientInner({ sectionData }: { sectionData: AllSectionData })
     window.scrollTo({ top: 0, behavior: "instant" });
   }, []);
 
+  const handleSellerNavigate = useCallback((sectionId: string) => {
+    setActiveSellerSection(sectionId as SellerSectionId);
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, []);
+
+  const handleFlowChange = useCallback((flow: FlowType) => {
+    setActiveFlow(flow);
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, []);
+
+  // ─── Affiliate flow rendering ─────────────────────────────────
+
   const meta = getSectionMeta(activeSection);
   const locked = isLocked(activeSection as SectionId);
   const unmet = unmetFor(activeSection as SectionId);
   const visibleSections = getVisibleSections(unlockedPhases);
 
-  function renderSection() {
+  function renderAffiliateSection() {
     switch (activeSection) {
       case 1:
         return <Section1Form initialData={cache[1]} onNavigate={handleNavigate} disabled={locked} />;
@@ -151,13 +219,7 @@ function OnboardingClientInner({ sectionData }: { sectionData: AllSectionData })
       case 4:
         return <Section4Form initialData={cache[4]} onNavigate={handleNavigate} disabled={locked} />;
       case 5:
-        return <Section5Form initialData={cache[5]} onNavigate={handleNavigate} disabled={locked} />;
-      case 6:
-        return <Section6Form initialData={cache[6]} onNavigate={handleNavigate} disabled={locked} />;
-      case 7:
-        return <Section7Form initialData={cache[7]} onNavigate={handleNavigate} disabled={locked} />;
-      case 8:
-        return <Section8Form initialData={cache[8]} onNavigate={handleNavigate} disabled={locked} />;
+        return <NetworkBuilderForm onNavigate={handleNavigate} disabled={locked} />;
       case 9:
         return <Section9Form initialData={cache[9]} onNavigate={handleNavigate} disabled={locked} />;
       case 10:
@@ -171,6 +233,94 @@ function OnboardingClientInner({ sectionData }: { sectionData: AllSectionData })
     }
   }
 
+  // ─── Seller flow rendering ────────────────────────────────────
+
+  const sellerMeta = getSellerSectionMeta(activeSellerSection);
+
+  const sellerLocked = sellerFlowStatus === "SUBMITTED";
+
+  function renderSellerSection() {
+    const defaultOrgInfo: SellerOrgData = { legalName: "", adminContactName: "", adminContactEmail: "", adminContactPhone: "", operationsContactName: "", operationsContactEmail: "", operationsContactPhone: "" };
+    const defaultServices: SellerServicesData = { services: [] };
+    const defaultLab: SellerLabData = { networkType: null, otherNetworkName: "", coordinationContactName: "", coordinationContactEmail: "", coordinationContactPhone: "", integrationAcknowledged: false };
+    const defaultBilling: SellerBillingData = { w9FilePath: null, achAccountHolderName: "", achAccountType: null, achRoutingNumber: "", achAccountNumber: "", bankDocFilePath: null };
+
+    switch (activeSellerSection) {
+      case "S-1":
+        return (
+          <SellerOrgInfoForm
+            initialData={sellerData?.orgInfo ?? defaultOrgInfo}
+            onNavigate={handleSellerNavigate}
+            disabled={sellerLocked}
+          />
+        );
+      case "S-2":
+        return (
+          <SellerLocationsForm
+            initialData={{
+              defaultSchedulingSystem: sellerData?.defaultSchedulingSystem ?? null,
+              defaultSchedulingOtherName: sellerData?.defaultSchedulingOtherName ?? null,
+              defaultSchedulingAcknowledged: sellerData?.defaultSchedulingAcknowledged ?? false,
+              locations: sellerData?.locations ?? [],
+            }}
+            sellerServiceOfferings={sellerServices.services}
+            locationServices={sellerData?.locationServices}
+            onNavigate={handleSellerNavigate}
+            onStatusUpdate={handleSellerStatusUpdate}
+            disabled={sellerLocked}
+          />
+        );
+      case "S-3":
+        return (
+          <SellerProvidersForm
+            initialData={{ providers: sellerData?.providers ?? [] }}
+            onNavigate={handleSellerNavigate}
+            onStatusUpdate={handleSellerStatusUpdate}
+            disabled={sellerLocked}
+          />
+        );
+      case "S-4":
+        return (
+          <SellerServicesForm
+            initialData={sellerData?.services ?? defaultServices}
+            onNavigate={handleSellerNavigate}
+            onStatusUpdate={handleSellerStatusUpdate}
+            onServicesChange={setSellerServices}
+            disabled={sellerLocked}
+          />
+        );
+      case "S-5":
+        return (
+          <SellerLabForm
+            initialData={sellerData?.lab ?? defaultLab}
+            onNavigate={handleSellerNavigate}
+            onStatusUpdate={handleSellerStatusUpdate}
+            disabled={sellerLocked}
+          />
+        );
+      case "S-6":
+        return (
+          <SellerBillingForm
+            initialData={sellerData?.billing ?? defaultBilling}
+            onNavigate={handleSellerNavigate}
+            onStatusUpdate={handleSellerStatusUpdate}
+            disabled={sellerLocked}
+          />
+        );
+      case "S-R":
+        return sellerData ? (
+          <SellerReviewForm
+            sellerData={sellerData}
+            statuses={sellerStatuses}
+            onNavigate={handleSellerNavigate}
+            onSubmitted={() => setSellerFlowStatus("SUBMITTED")}
+          />
+        ) : null;
+      default:
+        return null;
+    }
+  }
+
   // Determine phase label for header
   const phaseLabel = meta?.minPhase === 2 ? "Phase 2" : meta?.phase === "program" ? "Program" : meta?.phase === "operations" ? "Operations" : "Review";
 
@@ -178,41 +328,116 @@ function OnboardingClientInner({ sectionData }: { sectionData: AllSectionData })
     <SavingCtx.Provider value={setIsSaving}>
     <DirtyCtx.Provider value={reportDirty}>
     <SectionCacheCtx.Provider value={updateCache}>
-    <div className="flex h-screen bg-off-white">
+    <div className="flex flex-col h-screen bg-off-white">
       <LoadingOverlay visible={isSaving} />
-      <SectionNav
-        activeSection={activeSection}
-        onSectionChange={handleNavigate}
-        completionStatuses={statuses}
-        unlockedPhases={unlockedPhases}
-        phaseStatuses={phaseStatuses}
-        dirtySections={dirtySections}
-      />
-      <main className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-6 py-10">
-          {meta && (
-            <div className="mb-8">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted mb-1">
-                Section {activeSection} of {visibleSections.length} &middot; {phaseLabel}
-              </p>
-              <h1 className="text-2xl font-heading font-semibold text-brand-black">
-                {meta.title}
-              </h1>
-              <p className="text-sm text-muted mt-1">{meta.description}</p>
-            </div>
-          )}
-          {locked && (
-            <PrerequisiteBanner unmetSections={unmet} onNavigate={handleNavigate} />
-          )}
-          {locked ? (
-            <div className="opacity-50 pointer-events-none" aria-disabled="true">
-              {renderSection()}
-            </div>
-          ) : (
-            renderSection()
-          )}
+
+      {/* ── Tab Bar (only for dual-role orgs) ── */}
+      {isDualRole && (
+        <div className="flex-shrink-0 bg-white border-b border-border">
+          <div className="flex">
+            <button
+              type="button"
+              onClick={() => handleFlowChange("AFFILIATE")}
+              className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 ${
+                activeFlow === "AFFILIATE"
+                  ? "border-brand-teal text-brand-teal"
+                  : "border-transparent text-muted hover:text-brand-black"
+              }`}
+            >
+              Plan Onboarding
+            </button>
+            <button
+              type="button"
+              onClick={() => handleFlowChange("SELLER")}
+              className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 ${
+                activeFlow === "SELLER"
+                  ? "border-brand-teal text-brand-teal"
+                  : "border-transparent text-muted hover:text-brand-black"
+              }`}
+            >
+              Care Delivery Onboarding
+            </button>
+          </div>
         </div>
-      </main>
+      )}
+
+      {/* ── Main layout: sidebar + content ── */}
+      <div className="flex flex-1 overflow-hidden">
+        {activeFlow === "AFFILIATE" ? (
+          <>
+            <SectionNav
+              activeSection={activeSection}
+              onSectionChange={handleNavigate}
+              completionStatuses={statuses}
+              unlockedPhases={unlockedPhases}
+              phaseStatuses={phaseStatuses}
+              dirtySections={dirtySections}
+            />
+            <main className="flex-1 overflow-y-auto">
+              <div className="max-w-3xl mx-auto px-6 py-10">
+                {meta && (
+                  <div className="mb-8">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted mb-1">
+                      Section {activeSection} of {visibleSections.length} &middot; {phaseLabel}
+                    </p>
+                    <h1 className="text-2xl font-heading font-semibold text-brand-black">
+                      {meta.title}
+                    </h1>
+                    <p className="text-sm text-muted mt-1">{meta.description}</p>
+                  </div>
+                )}
+                {locked && (
+                  <PrerequisiteBanner unmetSections={unmet} onNavigate={handleNavigate} />
+                )}
+                {locked ? (
+                  <div className="opacity-50 pointer-events-none" aria-disabled="true">
+                    {renderAffiliateSection()}
+                  </div>
+                ) : (
+                  renderAffiliateSection()
+                )}
+              </div>
+            </main>
+          </>
+        ) : (
+          <>
+            <SellerSectionNav
+              activeSection={activeSellerSection}
+              onSectionChange={handleSellerNavigate}
+              completionStatuses={sellerStatuses}
+            />
+            <main className="flex-1 overflow-y-auto">
+              <div className="max-w-3xl mx-auto px-6 py-10">
+                {sellerMeta && (
+                  <div className="mb-8">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted mb-1">
+                      Section {SELLER_SECTIONS.findIndex((s) => s.id === activeSellerSection) + 1} of {SELLER_SECTIONS.length} &middot; Care Delivery
+                    </p>
+                    <h1 className="text-2xl font-heading font-semibold text-brand-black">
+                      {sellerMeta.title}
+                    </h1>
+                    <p className="text-sm text-muted mt-1">{sellerMeta.description}</p>
+                  </div>
+                )}
+                {sellerLocked && activeSellerSection !== "S-R" && (
+                  <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
+                    <p className="text-sm text-amber-800">
+                      This form has been submitted and is now locked. Contact your account manager to make changes.
+                    </p>
+                  </div>
+                )}
+                {sellerLocked && activeSellerSection !== "S-R" ? (
+                  <div className="opacity-50 pointer-events-none" aria-disabled="true">
+                    {renderSellerSection()}
+                  </div>
+                ) : (
+                  renderSellerSection()
+                )}
+              </div>
+            </main>
+          </>
+        )}
+      </div>
     </div>
     </SectionCacheCtx.Provider>
     </DirtyCtx.Provider>

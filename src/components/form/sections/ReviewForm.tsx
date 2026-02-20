@@ -8,9 +8,6 @@ import { Button } from "@/components/ui/Button";
 import { loadSection1 } from "@/lib/actions/section1";
 import { loadSection2 } from "@/lib/actions/section2";
 import { loadSection3 } from "@/lib/actions/section3";
-import { loadSection5 } from "@/lib/actions/section5";
-import { loadSection6 } from "@/lib/actions/section6";
-import { loadSection7 } from "@/lib/actions/section7";
 import { loadSection9 } from "@/lib/actions/section9";
 import { submitForm } from "@/lib/actions/submit";
 import { SERVICE_TYPES } from "@/lib/validations/section3";
@@ -22,17 +19,15 @@ interface ReviewData {
   section1: Awaited<ReturnType<typeof loadSection1>> | null;
   section2: Awaited<ReturnType<typeof loadSection2>> | null;
   section3: Awaited<ReturnType<typeof loadSection3>> | null;
-  section5: Awaited<ReturnType<typeof loadSection5>> | null;
-  section6: Awaited<ReturnType<typeof loadSection6>> | null;
-  section7: Awaited<ReturnType<typeof loadSection7>> | null;
   section9: Awaited<ReturnType<typeof loadSection9>> | null;
+  networkLocationCount: number;
 }
 
 function Field({ label, value }: { label: string; value: string | number | null | undefined }) {
   return (
     <div className="flex justify-between py-1.5 border-b border-border/50 last:border-0">
       <span className="text-sm text-muted">{label}</span>
-      <span className="text-sm text-foreground font-medium">{value || "—"}</span>
+      <span className="text-sm text-foreground font-medium">{value || "\u2014"}</span>
     </div>
   );
 }
@@ -54,14 +49,14 @@ interface ReviewFormProps {
 
 export function ReviewForm({ onNavigate }: ReviewFormProps) {
   const { statuses, formStatus, refreshStatuses } = useCompletion();
-  const sectionsToComplete = SECTIONS.filter((s) => s.id !== 10 && !s.hidden);
+  const sectionsToComplete = SECTIONS.filter((s) => s.id !== 10 && !s.hidden && s.minPhase === 1);
   const allComplete = sectionsToComplete.every((s) => statuses[s.id] === "complete");
 
   const [data, setData] = useState<ReviewData>({
     loaded: false,
     section1: null, section2: null, section3: null,
-    section5: null, section6: null, section7: null,
     section9: null,
+    networkLocationCount: 0,
   });
   const [confirmed, setConfirmed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -70,14 +65,13 @@ export function ReviewForm({ onNavigate }: ReviewFormProps) {
   useEffect(() => {
     Promise.all([
       loadSection1(), loadSection2(), loadSection3(),
-      loadSection5(), loadSection6(), loadSection7(),
       loadSection9(),
-    ]).then(([s1, s2, s3, s5, s6, s7, s9]) => {
+    ]).then(([s1, s2, s3, s9]) => {
       setData({
         loaded: true,
         section1: s1, section2: s2, section3: s3,
-        section5: s5, section6: s6, section7: s7,
         section9: s9,
+        networkLocationCount: 0, // TODO: load from network actions when available
       });
     });
   }, []);
@@ -138,7 +132,7 @@ export function ReviewForm({ onNavigate }: ReviewFormProps) {
                     </div>
                   )}
                   <span className={`text-sm ${st === "complete" ? "text-foreground" : "text-muted"}`}>
-                    {section.id}. {section.title}
+                    {section.title}
                   </span>
                 </div>
                 {st !== "complete" && onNavigate && (
@@ -160,7 +154,7 @@ export function ReviewForm({ onNavigate }: ReviewFormProps) {
 
       <Card>
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-base font-heading font-semibold">1. Client & Program Overview</h3>
+          <h3 className="text-base font-heading font-semibold">Client & Program Overview</h3>
           <EditButton section={1} onNavigate={onNavigate} />
         </div>
         <Field label="Legal Name" value={s1.legalName} />
@@ -172,7 +166,7 @@ export function ReviewForm({ onNavigate }: ReviewFormProps) {
 
       <Card>
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-base font-heading font-semibold">2. Default Services</h3>
+          <h3 className="text-base font-heading font-semibold">Default Services</h3>
           <EditButton section={2} onNavigate={onNavigate} />
         </div>
         <Field label="Confirmed" value={data.section2?.defaultServicesConfirmed ? "Yes" : "No"} />
@@ -180,7 +174,7 @@ export function ReviewForm({ onNavigate }: ReviewFormProps) {
 
       <Card>
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-base font-heading font-semibold">3. In-Person & Extended Services</h3>
+          <h3 className="text-base font-heading font-semibold">In-Person & Extended Services</h3>
           <EditButton section={3} onNavigate={onNavigate} />
         </div>
         {selectedServices.length > 0 ? (
@@ -197,7 +191,7 @@ export function ReviewForm({ onNavigate }: ReviewFormProps) {
 
       <Card>
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-base font-heading font-semibold">4. Payouts & Payments</h3>
+          <h3 className="text-base font-heading font-semibold">Payouts & Payments</h3>
           <EditButton section={4} onNavigate={onNavigate} />
         </div>
         <p className="text-sm text-muted">Payment information submitted (details hidden for security).</p>
@@ -208,45 +202,21 @@ export function ReviewForm({ onNavigate }: ReviewFormProps) {
 
       <Card>
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-base font-heading font-semibold">5. Physical Locations</h3>
+          <h3 className="text-base font-heading font-semibold">Care Network</h3>
           <EditButton section={5} onNavigate={onNavigate} />
         </div>
-        {(data.section5?.locations ?? []).map((loc, i) => (
-          <div key={i} className="py-2 border-b border-border/50 last:border-0">
-            <p className="text-sm font-medium">{loc.locationName || "Unnamed"}</p>
-            <p className="text-xs text-muted">{[loc.streetAddress, loc.city, loc.state, loc.zip].filter(Boolean).join(", ")}</p>
-          </div>
-        ))}
-        {(data.section5?.locations ?? []).length === 0 && <p className="text-sm text-muted">No locations added</p>}
+        {statuses[5] === "complete" ? (
+          <p className="text-sm text-foreground">
+            Network configured with contracted care delivery locations.
+          </p>
+        ) : (
+          <p className="text-sm text-muted">No care delivery locations in your network yet.</p>
+        )}
       </Card>
 
       <Card>
         <div className="flex justify-between items-center mb-3">
-          <h3 className="text-base font-heading font-semibold">6. Providers & Credentials</h3>
-          <EditButton section={6} onNavigate={onNavigate} />
-        </div>
-        {(data.section6?.providers ?? []).map((p, i) => (
-          <div key={i} className="py-2 border-b border-border/50 last:border-0">
-            <p className="text-sm font-medium">{[p.firstName, p.lastName].filter(Boolean).join(" ") || "Unnamed"}</p>
-            <p className="text-xs text-muted">NPI: {p.npi || "—"}</p>
-          </div>
-        ))}
-        {(data.section6?.providers ?? []).length === 0 && <p className="text-sm text-muted">No providers added</p>}
-      </Card>
-
-      <Card>
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="text-base font-heading font-semibold">7. Lab Network</h3>
-          <EditButton section={7} onNavigate={onNavigate} />
-        </div>
-        <Field label="Network" value={data.section7?.networkType === "other" ? data.section7.otherNetworkName : data.section7?.networkType} />
-        <Field label="Contact" value={data.section7?.coordinationContactName} />
-        <Field label="Integration Acknowledged" value={data.section7?.integrationAcknowledged ? "Yes" : "No"} />
-      </Card>
-
-      <Card>
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="text-base font-heading font-semibold">9. Care Navigation</h3>
+          <h3 className="text-base font-heading font-semibold">Care Navigation</h3>
           <EditButton section={9} onNavigate={onNavigate} />
         </div>
         <Field label="Acknowledged" value={data.section9?.acknowledged ? "Yes" : "No"} />

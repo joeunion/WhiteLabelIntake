@@ -109,16 +109,15 @@ export function SectionNav({
     return initial;
   });
 
-  // Auto-expand the phase containing the active section
+  // Auto-expand the phase when navigating to a section inside a collapsed phase
   useEffect(() => {
-    if (collapsed[activePhase]) {
-      setCollapsed((prev) => ({ ...prev, [activePhase]: false }));
-    }
-  }, [activePhase]); // eslint-disable-line react-hooks/exhaustive-deps
+    setCollapsed((prev) => {
+      if (prev[activePhase]) return { ...prev, [activePhase]: false };
+      return prev;
+    });
+  }, [activePhase]);
 
   const togglePhase = (phase: number) => {
-    // Don't allow collapsing the phase that contains the active section
-    if (phase === activePhase && !collapsed[phase]) return;
     setCollapsed((prev) => ({ ...prev, [phase]: !prev[phase] }));
   };
 
