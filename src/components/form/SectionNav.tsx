@@ -18,7 +18,6 @@ const phaseLabels: Record<string, string> = {
   program: "Program",
   operations: "Operations",
   review: "Review",
-  service_config: "Service Configuration",
 };
 
 function StatusDot({ status, locked, dirty }: { status: CompletionStatus; locked?: boolean; dirty?: boolean }) {

@@ -11,6 +11,7 @@ import type { CompletionStatus, SellerSectionId } from "@/types";
 export interface LocationServiceState {
   overrides: Array<{ serviceType: string; available: boolean }>;
   subServices: Array<{ serviceType: string; subType: string; available: boolean }>;
+  hasOverrides: boolean;
 }
 
 export async function loadLocationServices(sellerLocationId: string): Promise<LocationServiceState> {
@@ -24,6 +25,7 @@ export async function loadLocationServices(sellerLocationId: string): Promise<Lo
   return {
     overrides: configs.map((c) => ({ serviceType: c.serviceType, available: c.available })),
     subServices: subs.map((s) => ({ serviceType: s.serviceType, subType: s.subType, available: s.available })),
+    hasOverrides: configs.length > 0 || subs.length > 0,
   };
 }
 
@@ -46,9 +48,12 @@ export async function loadAllLocationServices(affiliateId: string): Promise<
 
   const result: Record<string, LocationServiceState> = {};
   for (const locId of locationIds) {
+    const locConfigs = configs.filter((c) => c.sellerLocationId === locId);
+    const locSubs = subs.filter((s) => s.sellerLocationId === locId);
     result[locId] = {
-      overrides: configs.filter((c) => c.sellerLocationId === locId).map((c) => ({ serviceType: c.serviceType, available: c.available })),
-      subServices: subs.filter((s) => s.sellerLocationId === locId).map((s) => ({ serviceType: s.serviceType, subType: s.subType, available: s.available })),
+      overrides: locConfigs.map((c) => ({ serviceType: c.serviceType, available: c.available })),
+      subServices: locSubs.map((s) => ({ serviceType: s.serviceType, subType: s.subType, available: s.available })),
+      hasOverrides: locConfigs.length > 0 || locSubs.length > 0,
     };
   }
 
@@ -113,4 +118,92 @@ export async function saveLocationServices(
   );
 
   return computeSellerStatuses(ctx.affiliateId);
+}
+
+// ─── Initialize a location from org defaults ─────────────────────
+
+export async function initLocationFromOrgDefaults(
+  sellerLocationId: string
+): Promise<LocationServiceState> {
+  const ctx = await getSessionContext();
+
+  // Verify location belongs to this affiliate
+  const location = await prisma.sellerLocation.findFirst({
+    where: { id: sellerLocationId, affiliateId: ctx.affiliateId },
+    select: { id: true },
+  });
+  if (!location) throw new Error("Seller location not found");
+
+  // Load org-level sub-service defaults
+  const orgSubs = await prisma.sellerOrgSubService.findMany({
+    where: { affiliateId: ctx.affiliateId },
+  });
+
+  // Load org-level selected service offerings
+  const orgServices = await prisma.sellerServiceOffering.findMany({
+    where: { affiliateId: ctx.affiliateId, selected: true },
+  });
+
+  // Create service config rows (all available by default)
+  const serviceConfigs = orgServices.map((svc) =>
+    prisma.sellerLocationServiceConfig.upsert({
+      where: {
+        sellerLocationId_serviceType: {
+          sellerLocationId,
+          serviceType: svc.serviceType,
+        },
+      },
+      update: { available: true },
+      create: {
+        sellerLocationId,
+        serviceType: svc.serviceType,
+        available: true,
+      },
+    })
+  );
+
+  // Copy org sub-service rows to location
+  const subServiceUpserts = orgSubs.map((sub) =>
+    prisma.sellerLocationSubService.upsert({
+      where: {
+        sellerLocationId_serviceType_subType: {
+          sellerLocationId,
+          serviceType: sub.serviceType,
+          subType: sub.subType,
+        },
+      },
+      update: { available: sub.selected },
+      create: {
+        sellerLocationId,
+        serviceType: sub.serviceType,
+        subType: sub.subType,
+        available: sub.selected,
+      },
+    })
+  );
+
+  await Promise.all([...serviceConfigs, ...subServiceUpserts]);
+
+  // Return the new state
+  return loadLocationServices(sellerLocationId);
+}
+
+// ─── Reset location to org defaults (delete all overrides) ───────
+
+export async function resetLocationToDefaults(
+  sellerLocationId: string
+): Promise<void> {
+  const ctx = await getSessionContext();
+
+  // Verify location belongs to this affiliate
+  const location = await prisma.sellerLocation.findFirst({
+    where: { id: sellerLocationId, affiliateId: ctx.affiliateId },
+    select: { id: true },
+  });
+  if (!location) throw new Error("Seller location not found");
+
+  await Promise.all([
+    prisma.sellerLocationServiceConfig.deleteMany({ where: { sellerLocationId } }),
+    prisma.sellerLocationSubService.deleteMany({ where: { sellerLocationId } }),
+  ]);
 }

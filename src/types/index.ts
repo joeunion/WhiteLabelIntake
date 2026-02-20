@@ -1,4 +1,4 @@
-export type SectionId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
+export type SectionId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
 
 export type CompletionStatus = "not_started" | "in_progress" | "complete";
 
@@ -9,7 +9,7 @@ export type FlowType = "AFFILIATE" | "SELLER";
 export interface SectionMeta {
   id: SectionId;
   title: string;
-  phase: "program" | "operations" | "review" | "service_config";
+  phase: "program" | "operations" | "review";
   description: string;
   minPhase: number;
   hidden?: boolean;
@@ -27,7 +27,7 @@ export interface SellerSectionMeta {
 
 export const SELLER_SECTIONS: SellerSectionMeta[] = [
   { id: "S-1", title: "Organization Info", description: "Legal name, contacts, and basic info" },
-  { id: "S-4", title: "Services Offered", description: "Select the services your organization provides" },
+  { id: "S-4", title: "Default Services", description: "Select services and configure default sub-service availability" },
   { id: "S-2", title: "Physical Locations", description: "Register your practice locations" },
   { id: "S-3", title: "Providers & Credentials", description: "Add provider information" },
   { id: "S-5", title: "Lab Network", description: "Lab network configuration" },
@@ -47,8 +47,6 @@ export const SECTIONS: SectionMeta[] = [
   { id: 5, title: "Care Network", phase: "operations", description: "Build your network of care delivery locations", minPhase: 1 },
   { id: 9, title: "Care Navigation", phase: "operations", description: "Care Nav services and escalation", minPhase: 1 },
   { id: 10, title: "Review & Submit", phase: "review", description: "Review and submit your form", minPhase: 1 },
-  { id: 11, title: "Service Configuration", phase: "service_config", description: "Configure covered sub-services for each category", minPhase: 2 },
-  { id: 12, title: "Review & Submit Phase 2", phase: "review", description: "Review service configuration and submit", minPhase: 2 },
 ];
 
 export function getSectionMeta(id: number): SectionMeta | undefined {
@@ -64,7 +62,6 @@ export const SECTION_PREREQUISITES: Partial<Record<SectionId, SectionId[]>> = {
   3: [1],
   4: [1],
   10: [1, 2, 3, 4, 5, 9],
-  12: [11],
 };
 
 /**
