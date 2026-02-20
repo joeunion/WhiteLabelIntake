@@ -5,23 +5,29 @@ import { getSessionContext, getContextForAffiliate } from "./helpers";
 import { decryptField } from "@/lib/encryption";
 import { SERVICE_TYPES } from "@/lib/validations/section3";
 import { SUB_SERVICE_TYPES } from "@/lib/validations/section11";
-import { defaultWeeklySchedule } from "@/lib/validations/section5";
-import type { AllSectionData } from "@/components/form/OnboardingClient";
+import type { AllSectionData, SellerFlowData } from "@/components/form/OnboardingClient";
 import type { CompletionStatus } from "@/types";
 import type { Section1Data } from "@/lib/validations/section1";
 import type { Section2Data } from "@/lib/validations/section2";
 import type { Section3Data } from "@/lib/validations/section3";
 import type { Section4Data } from "@/lib/validations/section4";
-import type { Section5Data, LocationData } from "@/lib/validations/section5";
-import type { Section6Data } from "@/lib/validations/section6";
-import type { Section7Data } from "@/lib/validations/section7";
-import type { Section8Data } from "@/lib/validations/section8";
 import type { Section9Data } from "@/lib/validations/section9";
 import type { Section11Data } from "@/lib/validations/section11";
+import { SELLER_SERVICE_TYPES } from "@/lib/validations/seller-services";
+import type { SellerServicesData } from "@/lib/validations/seller-services";
+import type { SellerLabData } from "@/lib/validations/seller-lab";
+import type { SellerBillingData } from "@/lib/validations/seller-billing";
+import { computeSellerStatuses } from "./seller-org";
+import { loadAllLocationServices, type LocationServiceState } from "./location-services";
 
 interface PhaseInfo {
   phase: number;
   status: string;
+}
+
+interface RoleFlags {
+  isAffiliate: boolean;
+  isSeller: boolean;
 }
 
 interface OnboardingData {
@@ -29,6 +35,8 @@ interface OnboardingData {
   statuses: Record<number, CompletionStatus>;
   formStatus: string;
   phases: PhaseInfo[];
+  roles: RoleFlags;
+  sellerData?: SellerFlowData;
 }
 
 /**
@@ -108,15 +116,6 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
         take: 1,
         include: { services: true, subServices: true },
       },
-      locations: {
-        include: { schedulingIntegrations: true },
-        orderBy: { createdAt: "asc" },
-      },
-      providers: {
-        orderBy: { createdAt: "asc" },
-      },
-      labNetworks: { take: 1 },
-      radiologyNetworks: { take: 1 },
       careNavConfigs: { take: 1 },
       phases: { orderBy: { phase: "asc" } },
     },
@@ -125,8 +124,6 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
   if (!affiliate) throw new Error("Affiliate not found");
 
   const program = affiliate.programs[0] ?? null;
-  const lab = affiliate.labNetworks[0] ?? null;
-  const rad = affiliate.radiologyNetworks[0] ?? null;
   const cn = affiliate.careNavConfigs[0] ?? null;
 
   // --- Phase data ---
@@ -182,68 +179,6 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
     paymentAchAccountNumber: program?.paymentAchAccountNumber ? decryptField(program.paymentAchAccountNumber) : "",
   };
 
-  const s5: Section5Data = {
-    defaultSchedulingSystem: affiliate.defaultSchedulingSystem ?? null,
-    defaultSchedulingOtherName: affiliate.defaultSchedulingOtherName ?? null,
-    defaultSchedulingAcknowledged: affiliate.defaultSchedulingAcknowledged ?? false,
-    locations: affiliate.locations.map((loc) => ({
-      id: loc.id,
-      locationName: loc.locationName ?? "",
-      streetAddress: loc.streetAddress ?? "",
-      city: loc.city ?? "",
-      state: loc.state ?? "",
-      zip: loc.zip ?? "",
-      closeByDescription: loc.closeByDescription ?? "",
-      locationNpi: loc.locationNpi ?? "",
-      phoneNumber: loc.phoneNumber ?? "",
-      hoursOfOperation: loc.hoursOfOperation ?? "",
-      accessType: loc.accessType as LocationData["accessType"],
-      hasOnSiteLabs: loc.hasOnSiteLabs,
-      hasOnSiteRadiology: loc.hasOnSiteRadiology,
-      hasOnSitePharmacy: loc.hasOnSitePharmacy,
-      weeklySchedule: (loc.weeklySchedule as LocationData["weeklySchedule"]) ?? defaultWeeklySchedule(),
-      schedulingSystemOverride: loc.schedulingSystemOverride ?? null,
-      schedulingOverrideOtherName: loc.schedulingOverrideOtherName ?? null,
-      schedulingOverrideAcknowledged: loc.schedulingOverrideAcknowledged ?? false,
-      schedulingIntegrations: loc.schedulingIntegrations.map((si) => ({
-        id: si.id,
-        serviceType: si.serviceType as "office_365" | "google_calendar" | "other",
-        serviceName: si.serviceName ?? "",
-        accountIdentifier: si.accountIdentifier ?? "",
-      })),
-    })),
-  };
-
-  const s6: Section6Data = {
-    providers: affiliate.providers.map((p) => ({
-      id: p.id,
-      firstName: p.firstName ?? "",
-      lastName: p.lastName ?? "",
-      providerType: p.providerType as "physician" | "np" | "pa" | "other" | null,
-      licenseNumber: p.licenseNumber ?? "",
-      licenseState: p.licenseState ?? "",
-      npi: p.npi ?? "",
-      deaNumber: p.deaNumber ?? "",
-    })),
-  };
-
-  const s7: Section7Data = {
-    networkType: (lab?.networkType as Section7Data["networkType"]) ?? null,
-    otherNetworkName: lab?.otherNetworkName ?? "",
-    coordinationContactName: lab?.coordinationContactName ?? "",
-    coordinationContactEmail: lab?.coordinationContactEmail ?? "",
-    coordinationContactPhone: lab?.coordinationContactPhone ?? "",
-    integrationAcknowledged: lab?.integrationAcknowledged ?? false,
-  };
-
-  const s8: Section8Data = {
-    networkName: rad?.networkName ?? "",
-    coordinationContactName: rad?.coordinationContactName ?? "",
-    coordinationContactEmail: rad?.coordinationContactEmail ?? "",
-    coordinationContactPhone: rad?.coordinationContactPhone ?? "",
-    integrationAcknowledged: rad?.integrationAcknowledged ?? false,
-  };
-
   const s9: Section9Data = {
     acknowledged: cn?.acknowledged ?? false,
     primaryEscalationName: cn?.primaryEscalationName ?? "",
@@ -272,14 +207,137 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
     s11 = { categories };
   }
 
+  // --- Count network locations for section 5 (Care Network) status ---
+  const networkLocationCount = affiliate.isAffiliate
+    ? await prisma.networkContractLocation.count({
+        where: { contract: { affiliateId } },
+      }) + await prisma.networkContract.count({
+        where: { affiliateId, scopeAll: true },
+      })
+    : 0;
+
   // --- Compute completion statuses in-memory ---
-  const statuses = computeStatuses(affiliate, program, s3, s5, s6, lab, rad, cn, s11, unlockedPhaseNumbers);
+  const statuses = computeStatuses(affiliate, program, s3, cn, s11, unlockedPhaseNumbers, networkLocationCount);
+
+  // --- Load seller data if org has seller role ---
+  let sellerData: SellerFlowData | undefined;
+  if (affiliate.isSeller) {
+    const [sellerProfile, sellerOfferings, sellerStatuses, locationServiceMap, sellerLocations, sellerProviders, sellerLabNetwork, sellerFlowRecord] = await Promise.all([
+      prisma.sellerProfile.findUnique({ where: { affiliateId } }),
+      prisma.sellerServiceOffering.findMany({ where: { affiliateId } }),
+      computeSellerStatuses(affiliateId),
+      loadAllLocationServices(affiliateId),
+      prisma.sellerLocation.findMany({
+        where: { affiliateId },
+        include: { schedulingIntegrations: true },
+        orderBy: { createdAt: "asc" },
+      }),
+      prisma.sellerProvider.findMany({
+        where: { affiliateId },
+        orderBy: { createdAt: "asc" },
+      }),
+      prisma.sellerLabNetwork.findFirst({ where: { affiliateId } }),
+      prisma.onboardingFlow.findUnique({
+        where: { affiliateId_flowType: { affiliateId, flowType: "SELLER" } },
+        select: { status: true },
+      }),
+    ]);
+
+    const offeringMap = new Map(sellerOfferings.map((o) => [o.serviceType, o.selected]));
+    const sellerServices: SellerServicesData = {
+      services: SELLER_SERVICE_TYPES.map((st) => ({
+        serviceType: st.value,
+        selected: offeringMap.get(st.value) ?? false,
+      })),
+    };
+
+    const sellerLab: SellerLabData = {
+      networkType: (sellerLabNetwork?.networkType as SellerLabData["networkType"]) ?? null,
+      otherNetworkName: sellerLabNetwork?.otherNetworkName ?? "",
+      coordinationContactName: sellerLabNetwork?.coordinationContactName ?? "",
+      coordinationContactEmail: sellerLabNetwork?.coordinationContactEmail ?? "",
+      coordinationContactPhone: sellerLabNetwork?.coordinationContactPhone ?? "",
+      integrationAcknowledged: sellerLabNetwork?.integrationAcknowledged ?? false,
+    };
+
+    const sellerBilling: SellerBillingData = {
+      w9FilePath: sellerProfile?.w9FilePath ?? null,
+      achAccountHolderName: sellerProfile?.achAccountHolderName ?? "",
+      achAccountType: (sellerProfile?.achAccountType as SellerBillingData["achAccountType"]) ?? null,
+      achRoutingNumber: sellerProfile?.achRoutingNumber ? decryptField(sellerProfile.achRoutingNumber) : "",
+      achAccountNumber: sellerProfile?.achAccountNumber ? decryptField(sellerProfile.achAccountNumber) : "",
+      bankDocFilePath: sellerProfile?.bankDocFilePath ?? null,
+    };
+
+    sellerData = {
+      defaultSchedulingSystem: affiliate.defaultSchedulingSystem ?? null,
+      defaultSchedulingOtherName: affiliate.defaultSchedulingOtherName ?? null,
+      defaultSchedulingAcknowledged: affiliate.defaultSchedulingAcknowledged ?? false,
+      orgInfo: {
+        legalName: sellerProfile?.legalName ?? affiliate.legalName ?? "",
+        adminContactName: sellerProfile?.adminContactName ?? "",
+        adminContactEmail: sellerProfile?.adminContactEmail ?? "",
+        adminContactPhone: sellerProfile?.adminContactPhone ?? "",
+        operationsContactName: sellerProfile?.operationsContactName ?? "",
+        operationsContactEmail: sellerProfile?.operationsContactEmail ?? "",
+        operationsContactPhone: sellerProfile?.operationsContactPhone ?? "",
+      },
+      services: sellerServices,
+      lab: sellerLab,
+      billing: sellerBilling,
+      locationServices: locationServiceMap,
+      locations: sellerLocations.map((loc) => ({
+        id: loc.id,
+        locationName: loc.locationName ?? "",
+        streetAddress: loc.streetAddress ?? "",
+        streetAddress2: loc.streetAddress2 ?? "",
+        city: loc.city ?? "",
+        state: loc.state ?? "",
+        zip: loc.zip ?? "",
+        closeByDescription: loc.closeByDescription ?? "",
+        locationNpi: loc.locationNpi ?? "",
+        phoneNumber: loc.phoneNumber ?? "",
+        hoursOfOperation: loc.hoursOfOperation ?? "",
+        accessType: loc.accessType as "walk_in" | "appointment_only" | "both" | null,
+        hasOnSiteLabs: loc.hasOnSiteLabs,
+        hasOnSiteRadiology: loc.hasOnSiteRadiology,
+        hasOnSitePharmacy: loc.hasOnSitePharmacy,
+        weeklySchedule: loc.weeklySchedule as Array<{ day: string; openTime?: string; closeTime?: string; closed: boolean }> | undefined,
+        schedulingSystemOverride: loc.schedulingSystemOverride ?? null,
+        schedulingOverrideOtherName: loc.schedulingOverrideOtherName ?? null,
+        schedulingOverrideAcknowledged: loc.schedulingOverrideAcknowledged ?? false,
+        schedulingIntegrations: loc.schedulingIntegrations.map((si) => ({
+          id: si.id,
+          serviceType: si.serviceType as "office_365" | "google_calendar" | "other",
+          serviceName: si.serviceName ?? "",
+          accountIdentifier: si.accountIdentifier ?? "",
+        })),
+      })),
+      providers: sellerProviders.map((p) => ({
+        id: p.id,
+        firstName: p.firstName ?? "",
+        lastName: p.lastName ?? "",
+        providerType: p.providerType as "physician" | "np" | "pa" | "other" | null,
+        licenseNumber: p.licenseNumber ?? "",
+        licenseState: p.licenseState ?? "",
+        npi: p.npi ?? "",
+        deaNumber: p.deaNumber ?? "",
+      })),
+      statuses: sellerStatuses,
+      flowStatus: sellerFlowRecord?.status ?? "DRAFT",
+    };
+  }
 
   return {
-    sections: { 1: s1, 2: s2, 3: s3, 4: s4, 5: s5, 6: s6, 7: s7, 8: s8, 9: s9, 11: s11 },
+    sections: { 1: s1, 2: s2, 3: s3, 4: s4, 9: s9, 11: s11 },
     statuses,
     formStatus: affiliate.status,
     phases,
+    roles: {
+      isAffiliate: affiliate.isAffiliate,
+      isSeller: affiliate.isSeller,
+    },
+    sellerData,
   };
 }
 
@@ -307,13 +365,10 @@ function computeStatuses(
     services: { selected: boolean }[];
   } | null,
   s3: Section3Data,
-  s5: Section5Data,
-  s6: Section6Data,
-  lab: { networkType: string | null; coordinationContactName: string | null; integrationAcknowledged: boolean } | null,
-  rad: { networkName: string | null; coordinationContactName: string | null } | null,
   cn: { acknowledged: boolean; primaryEscalationName: string | null; secondaryEscalationName: string | null } | null,
   s11: Section11Data | undefined,
   unlockedPhases: number[],
+  networkLocationCount: number,
 ): Record<number, CompletionStatus> {
   const statuses: Record<number, CompletionStatus> = {};
 
@@ -344,21 +399,8 @@ function computeStatuses(
     statuses[4] = "not_started";
   }
 
-  // Section 5
-  const locations = s5.locations.filter((l) => l.id);
-  const completeLocations = locations.filter((l) => l.locationName && l.streetAddress && l.city && l.state && l.zip && l.locationNpi && l.phoneNumber);
-  statuses[5] = locations.length === 0 ? "not_started" : completeLocations.length === locations.length ? "complete" : "in_progress";
-
-  // Section 6
-  const providers = s6.providers.filter((p) => p.id);
-  const completeProv = providers.filter((p) => p.firstName && p.lastName && p.npi && p.licenseNumber);
-  statuses[6] = providers.length === 0 ? "not_started" : completeProv.length === providers.length ? "complete" : "in_progress";
-
-  // Section 7
-  statuses[7] = !lab ? "not_started" : lab.networkType && lab.coordinationContactName && (lab.networkType !== "other" || lab.integrationAcknowledged) ? "complete" : "in_progress";
-
-  // Section 8
-  statuses[8] = !rad ? "not_started" : rad.networkName && rad.coordinationContactName ? "complete" : "in_progress";
+  // Section 5 (Care Network) — complete when at least 1 location in network
+  statuses[5] = networkLocationCount > 0 ? "complete" : "not_started";
 
   // Section 9
   statuses[9] = !cn ? "not_started" : cn.acknowledged && cn.primaryEscalationName && cn.secondaryEscalationName ? "complete" : "in_progress";

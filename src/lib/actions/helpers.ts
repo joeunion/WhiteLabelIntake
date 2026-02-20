@@ -18,16 +18,24 @@ export async function getSessionContext() {
 
   if (!user?.affiliateId) throw new Error("No affiliate found for user");
 
-  const program = await prisma.program.findFirst({
-    where: { affiliateId: user.affiliateId },
-    select: { id: true },
-  });
+  const [program, affiliate] = await Promise.all([
+    prisma.program.findFirst({
+      where: { affiliateId: user.affiliateId },
+      select: { id: true },
+    }),
+    prisma.affiliate.findUnique({
+      where: { id: user.affiliateId },
+      select: { isAffiliate: true, isSeller: true },
+    }),
+  ]);
 
   return {
     userId: user.id,
     affiliateId: user.affiliateId,
     programId: program?.id ?? null,
     role: user.role,
+    isAffiliate: affiliate?.isAffiliate ?? true,
+    isSeller: affiliate?.isSeller ?? false,
   };
 }
 

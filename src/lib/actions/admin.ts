@@ -21,6 +21,8 @@ export interface AffiliateDetail {
   id: string;
   legalName: string | null;
   status: string;
+  isAffiliate: boolean;
+  isSeller: boolean;
   createdAt: Date;
   deletedAt: Date | null;
   users: {
@@ -316,6 +318,142 @@ export async function unlockPhaseForEditing(affiliateId: string, phaseNumber: nu
 
   await prisma.affiliatePhase.update({
     where: { affiliateId_phase: { affiliateId, phase: phaseNumber } },
+    data: { status: "DRAFT", submittedAt: null },
+  });
+}
+
+// ─── Role Management ─────────────────────────────────────────────
+
+export async function updateAffiliateRoles(
+  affiliateId: string,
+  roles: { isAffiliate: boolean; isSeller: boolean }
+): Promise<void> {
+  await getSuperAdminContext();
+
+  if (!roles.isAffiliate && !roles.isSeller) {
+    throw new Error("Organization must have at least one role enabled");
+  }
+
+  await prisma.affiliate.update({
+    where: { id: affiliateId },
+    data: { isAffiliate: roles.isAffiliate, isSeller: roles.isSeller },
+  });
+}
+
+// ─── Network Contract Management ──────────────────────────────────
+
+export interface NetworkContractItem {
+  id: string;
+  affiliateId: string;
+  affiliateName: string | null;
+  sellerId: string;
+  sellerName: string | null;
+  scopeAll: boolean;
+  notes: string | null;
+  locationCount: number;
+  createdAt: Date;
+}
+
+export async function listNetworkContracts(
+  affiliateId?: string
+): Promise<NetworkContractItem[]> {
+  await getSuperAdminContext();
+
+  const contracts = await prisma.networkContract.findMany({
+    where: affiliateId ? { affiliateId } : undefined,
+    include: {
+      affiliate: { select: { legalName: true } },
+      seller: { select: { legalName: true } },
+      scopedLocations: { select: { id: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return contracts.map((c) => ({
+    id: c.id,
+    affiliateId: c.affiliateId,
+    affiliateName: c.affiliate.legalName,
+    sellerId: c.sellerId,
+    sellerName: c.seller.legalName,
+    scopeAll: c.scopeAll,
+    notes: c.notes,
+    locationCount: c.scopedLocations.length,
+    createdAt: c.createdAt,
+  }));
+}
+
+export async function createNetworkContract(input: {
+  affiliateId: string;
+  sellerId: string;
+  scopeAll?: boolean;
+  notes?: string;
+  locationIds?: string[];
+}): Promise<{ contractId: string }> {
+  await getSuperAdminContext();
+
+  // Validate both orgs exist and have correct roles
+  const [affiliate, seller] = await Promise.all([
+    prisma.affiliate.findUnique({ where: { id: input.affiliateId }, select: { isAffiliate: true } }),
+    prisma.affiliate.findUnique({ where: { id: input.sellerId }, select: { isSeller: true } }),
+  ]);
+
+  if (!affiliate?.isAffiliate) throw new Error("Target organization is not an affiliate");
+  if (!seller?.isSeller) throw new Error("Target organization is not a seller");
+
+  const contract = await prisma.networkContract.create({
+    data: {
+      affiliateId: input.affiliateId,
+      sellerId: input.sellerId,
+      scopeAll: input.scopeAll ?? true,
+      notes: input.notes || null,
+      scopedLocations: input.locationIds?.length
+        ? { create: input.locationIds.map((sellerLocationId) => ({ sellerLocationId })) }
+        : undefined,
+    },
+  });
+
+  return { contractId: contract.id };
+}
+
+export async function deleteNetworkContract(contractId: string): Promise<void> {
+  await getSuperAdminContext();
+  await prisma.networkContract.delete({ where: { id: contractId } });
+}
+
+// ─── List sellers (for contract creation) ─────────────────────────
+
+export async function listSellers(): Promise<{ id: string; legalName: string | null }[]> {
+  await getSuperAdminContext();
+  return prisma.affiliate.findMany({
+    where: { isSeller: true, deletedAt: null },
+    select: { id: true, legalName: true },
+    orderBy: { legalName: "asc" },
+  });
+}
+
+// ─── Seller Flow Management ──────────────────────────────────────
+
+export interface SellerFlowStatus {
+  status: string;
+  submittedAt: Date | null;
+}
+
+export async function getSellerFlowStatus(affiliateId: string): Promise<SellerFlowStatus | null> {
+  await getSuperAdminContext();
+
+  const flow = await prisma.onboardingFlow.findUnique({
+    where: { affiliateId_flowType: { affiliateId, flowType: "SELLER" } },
+    select: { status: true, submittedAt: true },
+  });
+
+  return flow;
+}
+
+export async function unlockSellerFlow(affiliateId: string): Promise<void> {
+  await getSuperAdminContext();
+
+  await prisma.onboardingFlow.update({
+    where: { affiliateId_flowType: { affiliateId, flowType: "SELLER" } },
     data: { status: "DRAFT", submittedAt: null },
   });
 }

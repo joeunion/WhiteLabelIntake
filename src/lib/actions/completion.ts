@@ -54,22 +54,14 @@ export async function getCompletionStatuses(affiliateId: string): Promise<Record
     statuses[4] = "not_started";
   }
 
-  // Section 5: Physical Locations
-  const locations = await prisma.location.findMany({ where: { affiliateId } });
-  const completeLocations = locations.filter((l) => l.locationName && l.streetAddress && l.city && l.state && l.zip && l.locationNpi && l.phoneNumber);
-  statuses[5] = locations.length === 0 ? "not_started" : completeLocations.length === locations.length ? "complete" : "in_progress";
-
-  // Section 6: Providers & Credentials
-  const providers = await prisma.provider.findMany({ where: { affiliateId } });
-  const completeProv = providers.filter((p) => p.firstName && p.lastName && p.npi && p.licenseNumber);
-  statuses[6] = providers.length === 0 ? "not_started" : completeProv.length === providers.length ? "complete" : "in_progress";
-
-  // Section 7: Lab Network
-  const lab = await prisma.labNetwork.findFirst({ where: { affiliateId } });
-  statuses[7] = !lab ? "not_started" : lab.networkType && lab.coordinationContactName && (lab.networkType !== "other" || lab.integrationAcknowledged) ? "complete" : "in_progress";
-
-  // Section 8: Radiology Network (hidden — auto-complete so it never blocks)
-  statuses[8] = "complete";
+  // Section 5: Care Network — complete when at least 1 location in network
+  const networkContractCount = await prisma.networkContract.count({
+    where: { affiliateId, scopeAll: true },
+  });
+  const networkLocationCount = networkContractCount + await prisma.networkContractLocation.count({
+    where: { contract: { affiliateId } },
+  });
+  statuses[5] = networkLocationCount > 0 ? "complete" : "not_started";
 
   // Section 9: Care Navigation
   const cn = await prisma.careNavConfig.findFirst({ where: { affiliateId } });

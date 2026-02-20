@@ -12,14 +12,21 @@ import {
   unlockAffiliate,
   unlockPhase,
   unlockPhaseForEditing,
+  unlockSellerFlow,
+  updateAffiliateRoles,
+  listNetworkContracts,
+  createNetworkContract,
+  deleteNetworkContract,
+  listSellers,
 } from "@/lib/actions/admin";
-import type { AffiliateDetail, PhaseStatus } from "@/lib/actions/admin";
+import type { AffiliateDetail, PhaseStatus, NetworkContractItem, SellerFlowStatus } from "@/lib/actions/admin";
 import type { CompletionStatus } from "@/types";
 
 interface AffiliateDetailViewProps {
   affiliate: AffiliateDetail;
   statuses: Record<number, CompletionStatus>;
   phaseStatuses?: PhaseStatus[];
+  sellerFlowStatus?: SellerFlowStatus | null;
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -32,11 +39,28 @@ const PHASE_LABELS: Record<number, string> = {
   2: "Service Configuration",
 };
 
-export function AffiliateDetailView({ affiliate, statuses, phaseStatuses = [] }: AffiliateDetailViewProps) {
+export function AffiliateDetailView({ affiliate, statuses, phaseStatuses = [], sellerFlowStatus }: AffiliateDetailViewProps) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
   const [phaseAction, setPhaseAction] = useState<number | null>(null);
+
+  const [unlockingSeller, setUnlockingSeller] = useState(false);
+
+  // Role state
+  const [isAffiliate, setIsAffiliate] = useState(affiliate.isAffiliate);
+  const [isSeller, setIsSeller] = useState(affiliate.isSeller);
+  const [savingRoles, setSavingRoles] = useState(false);
+  const rolesChanged = isAffiliate !== affiliate.isAffiliate || isSeller !== affiliate.isSeller;
+
+  // Network contracts state
+  const [contracts, setContracts] = useState<NetworkContractItem[]>([]);
+  const [contractsLoaded, setContractsLoaded] = useState(false);
+  const [showContractForm, setShowContractForm] = useState(false);
+  const [sellers, setSellers] = useState<{ id: string; legalName: string | null }[]>([]);
+  const [selectedSellerId, setSelectedSellerId] = useState("");
+  const [contractNotes, setContractNotes] = useState("");
+  const [creatingContract, setCreatingContract] = useState(false);
 
   const totalSections = Object.keys(statuses).length;
   const completeSections = Object.values(statuses).filter((s) => s === "complete").length;
@@ -103,6 +127,73 @@ export function AffiliateDetailView({ affiliate, statuses, phaseStatuses = [] }:
     router.refresh();
   }
 
+  async function handleSaveRoles() {
+    if (!isAffiliate && !isSeller) {
+      alert("Organization must have at least one role enabled.");
+      return;
+    }
+    setSavingRoles(true);
+    try {
+      await updateAffiliateRoles(affiliate.id, { isAffiliate, isSeller });
+      router.refresh();
+    } finally {
+      setSavingRoles(false);
+    }
+  }
+
+  async function handleUnlockSellerFlow() {
+    if (!confirm("Unlock the seller (Care Delivery) flow? The client will be able to edit and re-submit.")) return;
+    setUnlockingSeller(true);
+    try {
+      await unlockSellerFlow(affiliate.id);
+      router.refresh();
+    } finally {
+      setUnlockingSeller(false);
+    }
+  }
+
+  async function loadContracts() {
+    if (contractsLoaded) return;
+    const data = await listNetworkContracts(affiliate.id);
+    setContracts(data);
+    setContractsLoaded(true);
+  }
+
+  async function handleShowContractForm() {
+    const sellerList = await listSellers();
+    setSellers(sellerList.filter((s) => s.id !== affiliate.id));
+    setShowContractForm(true);
+  }
+
+  async function handleCreateContract() {
+    if (!selectedSellerId) return;
+    setCreatingContract(true);
+    try {
+      await createNetworkContract({
+        affiliateId: affiliate.id,
+        sellerId: selectedSellerId,
+        scopeAll: true,
+        notes: contractNotes || undefined,
+      });
+      setShowContractForm(false);
+      setSelectedSellerId("");
+      setContractNotes("");
+      setContractsLoaded(false);
+      await loadContracts();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to create contract");
+    } finally {
+      setCreatingContract(false);
+    }
+  }
+
+  async function handleDeleteContract(contractId: string) {
+    if (!confirm("Remove this network contract?")) return;
+    await deleteNetworkContract(contractId);
+    setContractsLoaded(false);
+    await loadContracts();
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -130,6 +221,42 @@ export function AffiliateDetailView({ affiliate, statuses, phaseStatuses = [] }:
           )}
         </div>
       </div>
+
+      {/* Organization Roles */}
+      <Card>
+        <h2 className="font-heading font-semibold text-lg mb-4">Organization Roles</h2>
+        <p className="text-xs text-muted mb-4">
+          Controls which onboarding flows this organization sees. Dual-role orgs see both tabs.
+        </p>
+        <div className="flex gap-6 mb-4">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isAffiliate}
+              onChange={(e) => setIsAffiliate(e.target.checked)}
+              className="rounded border-border text-brand-teal focus:ring-brand-teal"
+            />
+            <span className="text-sm font-medium text-brand-black">Affiliate (Plan Buyer)</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isSeller}
+              onChange={(e) => setIsSeller(e.target.checked)}
+              className="rounded border-border text-brand-teal focus:ring-brand-teal"
+            />
+            <span className="text-sm font-medium text-brand-black">Seller (Care Delivery)</span>
+          </label>
+        </div>
+        {rolesChanged && (
+          <Button variant="cta" onClick={handleSaveRoles} loading={savingRoles} className="px-4 py-2 text-sm">
+            Save Roles
+          </Button>
+        )}
+        {!isAffiliate && !isSeller && (
+          <p className="text-xs text-error mt-2">At least one role must be enabled.</p>
+        )}
+      </Card>
 
       {/* Phase Progression */}
       <Card>
@@ -196,6 +323,41 @@ export function AffiliateDetailView({ affiliate, statuses, phaseStatuses = [] }:
         </div>
       </Card>
 
+      {/* Seller Flow Status */}
+      {affiliate.isSeller && (
+        <Card>
+          <h2 className="font-heading font-semibold text-lg mb-4">Seller Flow (Care Delivery)</h2>
+          <div className="flex items-center justify-between py-2">
+            <div className="flex items-center gap-3">
+              <PhaseStatusBadge status={sellerFlowStatus?.status ?? "DRAFT"} />
+              <div>
+                <span className="text-sm font-medium text-brand-black">Care Delivery Onboarding</span>
+                {sellerFlowStatus?.submittedAt && (
+                  <p className="text-xs text-muted">
+                    Submitted {new Date(sellerFlowStatus.submittedAt).toLocaleDateString()}
+                  </p>
+                )}
+                {!sellerFlowStatus && (
+                  <p className="text-xs text-muted">Not yet submitted</p>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              {sellerFlowStatus?.status === "SUBMITTED" && (
+                <Button
+                  variant="secondary"
+                  className="px-4 py-2 text-sm"
+                  onClick={handleUnlockSellerFlow}
+                  loading={unlockingSeller}
+                >
+                  Unlock for Editing
+                </Button>
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* Completion Overview */}
       <Card>
         <h2 className="font-heading font-semibold text-lg mb-4">Completion</h2>
@@ -225,6 +387,98 @@ export function AffiliateDetailView({ affiliate, statuses, phaseStatuses = [] }:
           ))}
         </div>
       </Card>
+
+      {/* Network Contracts (only for affiliates) */}
+      {isAffiliate && (
+        <Card>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-heading font-semibold text-lg">Network Contracts</h2>
+            <div className="flex gap-2">
+              {!contractsLoaded && (
+                <Button variant="secondary" className="px-4 py-2 text-sm" onClick={loadContracts}>
+                  Load Contracts
+                </Button>
+              )}
+              {contractsLoaded && (
+                <Button variant="cta" className="px-4 py-2 text-sm" onClick={handleShowContractForm}>
+                  Add Contract
+                </Button>
+              )}
+            </div>
+          </div>
+          <p className="text-xs text-muted mb-4">
+            Controls which sellers/care delivery orgs this affiliate can see in the marketplace.
+          </p>
+
+          {contractsLoaded && contracts.length === 0 && !showContractForm && (
+            <p className="text-sm text-muted">No network contracts yet.</p>
+          )}
+
+          {contractsLoaded && contracts.length > 0 && (
+            <div className="space-y-2 mb-4">
+              {contracts.map((contract) => (
+                <div key={contract.id} className="flex items-center justify-between py-2 border-b border-border/50 last:border-0">
+                  <div>
+                    <span className="text-sm font-medium text-brand-black">
+                      {contract.sellerName || "Unnamed Seller"}
+                    </span>
+                    <span className="text-xs text-muted ml-2">
+                      {contract.scopeAll ? "All locations" : `${contract.locationCount} locations`}
+                    </span>
+                    {contract.notes && (
+                      <p className="text-xs text-muted mt-0.5">{contract.notes}</p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => handleDeleteContract(contract.id)}
+                    className="text-xs text-error hover:underline"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {showContractForm && (
+            <div className="border border-border rounded-lg p-4 space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-brand-black mb-1">Seller</label>
+                <select
+                  value={selectedSellerId}
+                  onChange={(e) => setSelectedSellerId(e.target.value)}
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm"
+                >
+                  <option value="">Select a seller...</option>
+                  {sellers.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.legalName || "Unnamed"} ({s.id.slice(0, 8)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-brand-black mb-1">Notes (optional)</label>
+                <input
+                  type="text"
+                  value={contractNotes}
+                  onChange={(e) => setContractNotes(e.target.value)}
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm"
+                  placeholder="e.g., Regional contract for Southeast"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button variant="cta" className="px-4 py-2 text-sm" onClick={handleCreateContract} loading={creatingContract}>
+                  Create Contract
+                </Button>
+                <Button variant="secondary" className="px-4 py-2 text-sm" onClick={() => setShowContractForm(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* Users */}
       <Card>

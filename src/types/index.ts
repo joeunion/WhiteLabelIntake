@@ -4,6 +4,8 @@ export type CompletionStatus = "not_started" | "in_progress" | "complete";
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
+export type FlowType = "AFFILIATE" | "SELLER";
+
 export interface SectionMeta {
   id: SectionId;
   title: string;
@@ -13,15 +15,36 @@ export interface SectionMeta {
   hidden?: boolean;
 }
 
+// ─── Seller (Care Delivery) Sections ────────────────────────────
+
+export type SellerSectionId = "S-1" | "S-2" | "S-3" | "S-4" | "S-5" | "S-6" | "S-R";
+
+export interface SellerSectionMeta {
+  id: SellerSectionId;
+  title: string;
+  description: string;
+}
+
+export const SELLER_SECTIONS: SellerSectionMeta[] = [
+  { id: "S-1", title: "Organization Info", description: "Legal name, contacts, and basic info" },
+  { id: "S-4", title: "Services Offered", description: "Select the services your organization provides" },
+  { id: "S-2", title: "Physical Locations", description: "Register your practice locations" },
+  { id: "S-3", title: "Providers & Credentials", description: "Add provider information" },
+  { id: "S-5", title: "Lab Network", description: "Lab network configuration" },
+  { id: "S-6", title: "Billing Setup", description: "Payout account and banking information" },
+  { id: "S-R", title: "Review & Submit", description: "Review all sections and submit" },
+];
+
+export function getSellerSectionMeta(id: SellerSectionId): SellerSectionMeta | undefined {
+  return SELLER_SECTIONS.find((s) => s.id === id);
+}
+
 export const SECTIONS: SectionMeta[] = [
   { id: 1, title: "Client & Program Overview", phase: "program", description: "Identify your organization and program details", minPhase: 1 },
   { id: 2, title: "Default Program Services", phase: "program", description: "Confirm included services", minPhase: 1 },
   { id: 3, title: "In-Person & Extended Services", phase: "program", description: "Select additional services", minPhase: 1 },
   { id: 4, title: "Payouts & Payments", phase: "program", description: "Payment and billing setup", minPhase: 1 },
-  { id: 5, title: "Physical Locations", phase: "operations", description: "Add your practice locations", minPhase: 1 },
-  { id: 6, title: "Providers & Credentials", phase: "operations", description: "Add provider information", minPhase: 1 },
-  { id: 7, title: "Lab Network", phase: "operations", description: "Lab network configuration", minPhase: 1 },
-  { id: 8, title: "Radiology Network", phase: "operations", description: "Radiology network setup", hidden: true, minPhase: 1 },
+  { id: 5, title: "Care Network", phase: "operations", description: "Build your network of care delivery locations", minPhase: 1 },
   { id: 9, title: "Care Navigation", phase: "operations", description: "Care Nav services and escalation", minPhase: 1 },
   { id: 10, title: "Review & Submit", phase: "review", description: "Review and submit your form", minPhase: 1 },
   { id: 11, title: "Service Configuration", phase: "service_config", description: "Configure covered sub-services for each category", minPhase: 2 },
@@ -40,8 +63,7 @@ export const SECTION_PREREQUISITES: Partial<Record<SectionId, SectionId[]>> = {
   2: [1],
   3: [1],
   4: [1],
-  6: [5],
-  10: [1, 2, 3, 4, 5, 6, 7, 9],
+  10: [1, 2, 3, 4, 5, 9],
   12: [11],
 };
 
