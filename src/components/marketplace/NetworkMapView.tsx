@@ -34,8 +34,8 @@ export function NetworkMapView({ locations, searchQuery, serviceFilter, stateFil
   const listRef = useRef<HTMLDivElement>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [showCoverage, setShowCoverage] = useState(false);
-  const [radiusMiles, setRadiusMiles] = useState(5);
+  const [showCoverage, setShowCoverage] = useState(true);
+  const [radiusMiles, setRadiusMiles] = useState(10);
 
   const filtered = locations.filter((loc) => {
     if (!loc.included) return false;
@@ -288,7 +288,7 @@ export function NetworkMapView({ locations, searchQuery, serviceFilter, stateFil
               <input
                 type="range"
                 min={1}
-                max={10}
+                max={25}
                 step={1}
                 value={radiusMiles}
                 onChange={(e) => setRadiusMiles(Number(e.target.value))}
