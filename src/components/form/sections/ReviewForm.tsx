@@ -9,8 +9,12 @@ import { loadSection1 } from "@/lib/actions/section1";
 import { loadSection2 } from "@/lib/actions/section2";
 import { loadSection3 } from "@/lib/actions/section3";
 import { loadSection9 } from "@/lib/actions/section9";
+import { loadSection11 } from "@/lib/actions/section11";
 import { submitForm } from "@/lib/actions/submit";
 import { SERVICE_TYPES } from "@/lib/validations/section3";
+import { SUB_SERVICE_TYPES } from "@/lib/validations/section11";
+import type { Section11Data } from "@/lib/validations/section11";
+import { ServiceReviewAccordion } from "@/components/ui/ServiceToggles";
 import { SECTIONS } from "@/types";
 import { useCompletion } from "@/lib/contexts/CompletionContext";
 
@@ -20,6 +24,7 @@ interface ReviewData {
   section2: Awaited<ReturnType<typeof loadSection2>> | null;
   section3: Awaited<ReturnType<typeof loadSection3>> | null;
   section9: Awaited<ReturnType<typeof loadSection9>> | null;
+  section11: Section11Data | null;
   networkLocationCount: number;
 }
 
@@ -55,7 +60,7 @@ export function ReviewForm({ onNavigate }: ReviewFormProps) {
   const [data, setData] = useState<ReviewData>({
     loaded: false,
     section1: null, section2: null, section3: null,
-    section9: null,
+    section9: null, section11: null,
     networkLocationCount: 0,
   });
   const [confirmed, setConfirmed] = useState(false);
@@ -65,12 +70,12 @@ export function ReviewForm({ onNavigate }: ReviewFormProps) {
   useEffect(() => {
     Promise.all([
       loadSection1(), loadSection2(), loadSection3(),
-      loadSection9(),
-    ]).then(([s1, s2, s3, s9]) => {
+      loadSection9(), loadSection11(),
+    ]).then(([s1, s2, s3, s9, s11]) => {
       setData({
         loaded: true,
         section1: s1, section2: s2, section3: s3,
-        section9: s9,
+        section9: s9, section11: s11,
         networkLocationCount: 0, // TODO: load from network actions when available
       });
     });
@@ -178,12 +183,35 @@ export function ReviewForm({ onNavigate }: ReviewFormProps) {
           <EditButton section={3} onNavigate={onNavigate} />
         </div>
         {selectedServices.length > 0 ? (
-          <ul className="text-sm space-y-1">
+          <div className="flex flex-col gap-2">
             {selectedServices.map((s) => {
               const label = SERVICE_TYPES.find((st) => st.value === s.serviceType)?.label ?? s.serviceType;
-              return <li key={s.serviceType}>{label}{s.otherName ? `: ${s.otherName}` : ""}</li>;
+              const displayLabel = s.otherName ? `${label}: ${s.otherName}` : label;
+              const subItems = data.section11?.categories[s.serviceType];
+              const totalSubs = SUB_SERVICE_TYPES[s.serviceType]?.length ?? 0;
+              const selectedSubTypes = subItems?.filter((i) => i.selected).map((i) => i.subType) ?? [];
+
+              if (totalSubs > 0 && selectedSubTypes.length > 0) {
+                return (
+                  <ServiceReviewAccordion
+                    key={s.serviceType}
+                    serviceType={s.serviceType}
+                    label={displayLabel}
+                    selectedSubTypes={selectedSubTypes}
+                  />
+                );
+              }
+
+              return (
+                <div key={s.serviceType} className="flex items-baseline justify-between py-1.5 border-b border-border/50 last:border-0">
+                  <span className="text-sm">{displayLabel}</span>
+                  {totalSubs > 0 && (
+                    <span className="text-xs text-muted ml-2 flex-shrink-0">No sub-services configured</span>
+                  )}
+                </div>
+              );
             })}
-          </ul>
+          </div>
         ) : (
           <p className="text-sm text-muted">No services selected</p>
         )}

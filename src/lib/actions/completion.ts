@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import type { CompletionStatus } from "@/types";
 import { getSessionContext } from "./helpers";
-import { SUB_SERVICE_TYPES } from "@/lib/validations/section11";
+
 
 /**
  * Session-aware wrapper — resolves affiliateId from the current session
@@ -69,35 +69,6 @@ export async function getCompletionStatuses(affiliateId: string): Promise<Record
 
   // Section 10: Review & Submit
   statuses[10] = affiliate?.status === "SUBMITTED" ? "complete" : "not_started";
-
-  // Section 11: Sub-Service Configuration (only if Phase 2 exists)
-  const phase2 = await prisma.affiliatePhase.findUnique({
-    where: { affiliateId_phase: { affiliateId, phase: 2 } },
-  });
-  if (phase2 && program) {
-    const selectedServiceTypes = services.filter((s) => s.selected).map((s) => s.serviceType);
-    const subServices = await prisma.subService.findMany({
-      where: { programId: program.id },
-    });
-    const subsByType = new Map<string, boolean[]>();
-    for (const ss of subServices) {
-      if (!subsByType.has(ss.serviceType)) subsByType.set(ss.serviceType, []);
-      if (ss.selected) subsByType.get(ss.serviceType)!.push(true);
-    }
-    // Complete when every selected service type with sub-items has at least one sub-item selected
-    const categoriesWithSubItems = selectedServiceTypes.filter((st) => SUB_SERVICE_TYPES[st]);
-    if (categoriesWithSubItems.length === 0) {
-      statuses[11] = "not_started";
-    } else {
-      const allHaveSelection = categoriesWithSubItems.every(
-        (st) => (subsByType.get(st)?.length ?? 0) > 0
-      );
-      const anyHasSelection = categoriesWithSubItems.some(
-        (st) => (subsByType.get(st)?.length ?? 0) > 0
-      );
-      statuses[11] = allHaveSelection ? "complete" : anyHasSelection ? "in_progress" : "not_started";
-    }
-  }
 
   return statuses;
 }

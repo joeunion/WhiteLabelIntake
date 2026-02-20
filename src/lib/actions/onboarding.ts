@@ -19,6 +19,7 @@ import type { SellerLabData } from "@/lib/validations/seller-lab";
 import type { SellerBillingData } from "@/lib/validations/seller-billing";
 import { computeSellerStatuses } from "./seller-org";
 import { loadAllLocationServices, type LocationServiceState } from "./location-services";
+import { loadSellerOrgSubServices } from "./seller-org-sub-services";
 
 interface PhaseInfo {
   phase: number;
@@ -187,25 +188,21 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
     secondaryEscalationEmail: cn?.secondaryEscalationEmail ?? "",
   };
 
-  // --- Section 11: Sub-Services (only if Phase 2 unlocked) ---
-  let s11: Section11Data | undefined;
-  if (unlockedPhaseNumbers.includes(2)) {
-    const subServiceMap = new Map(
-      (program?.subServices ?? []).map((ss) => [`${ss.serviceType}:${ss.subType}`, ss.selected])
-    );
-    // Get selected service types from Section 3
-    const selectedServiceTypes = s3.services.filter((s) => s.selected).map((s) => s.serviceType);
-    const categories: Section11Data["categories"] = {};
-    for (const serviceType of selectedServiceTypes) {
-      const subItems = SUB_SERVICE_TYPES[serviceType];
-      if (!subItems) continue;
-      categories[serviceType] = subItems.map((item) => ({
-        subType: item.value,
-        selected: subServiceMap.get(`${serviceType}:${item.value}`) ?? false,
-      }));
-    }
-    s11 = { categories };
+  // --- Section 11: Sub-Services (always loaded, used inline in Section 3) ---
+  const subServiceMap = new Map(
+    (program?.subServices ?? []).map((ss) => [`${ss.serviceType}:${ss.subType}`, ss.selected])
+  );
+  const selectedServiceTypes = s3.services.filter((s) => s.selected).map((s) => s.serviceType);
+  const categories: Section11Data["categories"] = {};
+  for (const serviceType of selectedServiceTypes) {
+    const subItems = SUB_SERVICE_TYPES[serviceType];
+    if (!subItems) continue;
+    categories[serviceType] = subItems.map((item) => ({
+      subType: item.value,
+      selected: subServiceMap.get(`${serviceType}:${item.value}`) ?? false,
+    }));
   }
+  const s11: Section11Data = { categories };
 
   // --- Count network locations for section 5 (Care Network) status ---
   const networkLocationCount = affiliate.isAffiliate
@@ -217,12 +214,12 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
     : 0;
 
   // --- Compute completion statuses in-memory ---
-  const statuses = computeStatuses(affiliate, program, s3, cn, s11, unlockedPhaseNumbers, networkLocationCount);
+  const statuses = computeStatuses(affiliate, program, s3, cn, networkLocationCount);
 
   // --- Load seller data if org has seller role ---
   let sellerData: SellerFlowData | undefined;
   if (affiliate.isSeller) {
-    const [sellerProfile, sellerOfferings, sellerStatuses, locationServiceMap, sellerLocations, sellerProviders, sellerLabNetwork, sellerFlowRecord] = await Promise.all([
+    const [sellerProfile, sellerOfferings, sellerStatuses, locationServiceMap, sellerLocations, sellerProviders, sellerLabNetwork, sellerFlowRecord, orgSubServices] = await Promise.all([
       prisma.sellerProfile.findUnique({ where: { affiliateId } }),
       prisma.sellerServiceOffering.findMany({ where: { affiliateId } }),
       computeSellerStatuses(affiliateId),
@@ -241,6 +238,7 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
         where: { affiliateId_flowType: { affiliateId, flowType: "SELLER" } },
         select: { status: true },
       }),
+      loadSellerOrgSubServices(affiliateId),
     ]);
 
     const offeringMap = new Map(sellerOfferings.map((o) => [o.serviceType, o.selected]));
@@ -273,6 +271,7 @@ async function loadOnboardingDataByAffiliateId(affiliateId: string): Promise<Onb
       defaultSchedulingSystem: affiliate.defaultSchedulingSystem ?? null,
       defaultSchedulingOtherName: affiliate.defaultSchedulingOtherName ?? null,
       defaultSchedulingAcknowledged: affiliate.defaultSchedulingAcknowledged ?? false,
+      orgSubServices,
       orgInfo: {
         legalName: sellerProfile?.legalName ?? affiliate.legalName ?? "",
         adminContactName: sellerProfile?.adminContactName ?? "",
@@ -366,8 +365,6 @@ function computeStatuses(
   } | null,
   s3: Section3Data,
   cn: { acknowledged: boolean; primaryEscalationName: string | null; secondaryEscalationName: string | null } | null,
-  s11: Section11Data | undefined,
-  unlockedPhases: number[],
   networkLocationCount: number,
 ): Record<number, CompletionStatus> {
   const statuses: Record<number, CompletionStatus> = {};
@@ -407,24 +404,6 @@ function computeStatuses(
 
   // Section 10
   statuses[10] = affiliate.status === "SUBMITTED" ? "complete" : "not_started";
-
-  // Section 11: Sub-Service Configuration (only if Phase 2 unlocked)
-  if (unlockedPhases.includes(2) && s11) {
-    const cats = Object.entries(s11.categories);
-    if (cats.length === 0) {
-      statuses[11] = "not_started";
-    } else {
-      const allCategoriesHaveSelection = cats.every(([, items]) =>
-        items.some((item) => item.selected)
-      );
-      const anyHasSelection = cats.some(([, items]) =>
-        items.some((item) => item.selected)
-      );
-      statuses[11] = allCategoriesHaveSelection ? "complete" : anyHasSelection ? "in_progress" : "not_started";
-    }
-  }
-
-  // Section 12 (Phase 2 review — not tracked for completion)
 
   return statuses;
 }

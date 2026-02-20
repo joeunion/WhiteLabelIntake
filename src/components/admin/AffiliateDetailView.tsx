@@ -10,7 +10,6 @@ import {
   restoreAffiliate,
   softDeleteUser,
   unlockAffiliate,
-  unlockPhase,
   unlockPhaseForEditing,
   unlockSellerFlow,
   updateAffiliateRoles,
@@ -35,8 +34,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 const PHASE_LABELS: Record<number, string> = {
-  1: "Initial Onboarding",
-  2: "Service Configuration",
+  1: "Onboarding",
 };
 
 export function AffiliateDetailView({ affiliate, statuses, phaseStatuses = [], sellerFlowStatus }: AffiliateDetailViewProps) {
@@ -69,7 +67,6 @@ export function AffiliateDetailView({ affiliate, statuses, phaseStatuses = [], s
   // Phase 1 status from phaseStatuses or fallback to affiliate.status
   const phase1 = phaseStatuses.find((p) => p.phase === 1);
   const phase1Status = phase1?.status ?? affiliate.status;
-  const phase2 = phaseStatuses.find((p) => p.phase === 2);
 
   async function handleDelete() {
     if (!confirm("Are you sure you want to soft-delete this affiliate and all its users?")) return;
@@ -96,17 +93,6 @@ export function AffiliateDetailView({ affiliate, statuses, phaseStatuses = [], s
       router.refresh();
     } finally {
       setUnlocking(false);
-    }
-  }
-
-  async function handleUnlockPhase2() {
-    if (!confirm("Unlock Phase 2 (Service Configuration)? The client will see new sections to configure sub-services.")) return;
-    setPhaseAction(2);
-    try {
-      await unlockPhase(affiliate.id, 2);
-      router.refresh();
-    } finally {
-      setPhaseAction(null);
     }
   }
 
@@ -282,44 +268,6 @@ export function AffiliateDetailView({ affiliate, statuses, phaseStatuses = [], s
             </div>
           </div>
 
-          {/* Phase 2 */}
-          <div className="flex items-center justify-between py-2">
-            <div className="flex items-center gap-3">
-              <PhaseStatusBadge status={phase2?.status ?? "LOCKED"} />
-              <div>
-                <span className="text-sm font-medium text-brand-black">Phase 2: {PHASE_LABELS[2]}</span>
-                {phase2?.unlockedAt && (
-                  <p className="text-xs text-muted">
-                    Unlocked {new Date(phase2.unlockedAt).toLocaleDateString()}
-                    {phase2.submittedAt && ` · Submitted ${new Date(phase2.submittedAt).toLocaleDateString()}`}
-                  </p>
-                )}
-                {!phase2 && <p className="text-xs text-muted">Not yet unlocked</p>}
-              </div>
-            </div>
-            <div className="flex gap-2">
-              {!phase2 && phase1Status === "SUBMITTED" && (
-                <Button
-                  variant="cta"
-                  className="px-4 py-2 text-sm"
-                  onClick={handleUnlockPhase2}
-                  loading={phaseAction === 2}
-                >
-                  Unlock Phase 2
-                </Button>
-              )}
-              {phase2?.status === "SUBMITTED" && (
-                <Button
-                  variant="secondary"
-                  className="px-4 py-2 text-sm"
-                  onClick={() => handleUnlockPhaseForEditing(2)}
-                  loading={phaseAction === 2}
-                >
-                  Unlock for Editing
-                </Button>
-              )}
-            </div>
-          </div>
         </div>
       </Card>
 

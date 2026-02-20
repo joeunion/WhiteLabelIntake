@@ -41,7 +41,7 @@ export async function loadSection11(): Promise<Section11Data> {
 
 export async function saveSection11(data: Section11Data): Promise<Record<number, CompletionStatus>> {
   const ctx = await getSessionContext();
-  await assertPhaseNotSubmitted(ctx.affiliateId, 2);
+  await assertPhaseNotSubmitted(ctx.affiliateId, 1);
 
   if (!ctx.programId) return getCompletionStatuses(ctx.affiliateId);
 

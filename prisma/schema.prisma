@@ -123,6 +123,7 @@ model Affiliate {
   sellerLocations        SellerLocation[]
   sellerProviders        SellerProvider[]
   sellerLabNetworks      SellerLabNetwork[]
+  sellerOrgSubServices   SellerOrgSubService[]
 
   @@map("affiliates")
 }
@@ -681,6 +682,20 @@ model SellerLabNetwork {
   updatedAt DateTime @updatedAt
 
   @@map("seller_lab_networks")
+}
+
+model SellerOrgSubService {
+  id          String    @id @default(cuid())
+  affiliateId String
+  affiliate   Affiliate @relation(fields: [affiliateId], references: [id], onDelete: Cascade)
+  serviceType String
+  subType     String
+  selected    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([affiliateId, serviceType, subType])
+  @@map("seller_org_sub_services")
 }
 
 model SellerLocationServiceConfig {
